@@ -93,6 +93,12 @@ check("导航含总览", (await page.locator("nav:visible button", { hasText: "�
 check("顶栏无行情来源", !(await page.locator("header").innerText()).includes("东方财富"));
 check("导航标记 aria-current", (await page.locator("nav:visible [aria-current='page']").count()) > 0);
 if (HAS_DATA) {
+  if (IS_SEED) {
+    check("示例数据有明示横幅", (await page.getByText("当前显示的是示例数据").count()) > 0);
+  } else {
+    check("用户数据不显示示例横幅", (await page.getByText("当前显示的是示例数据").count()) === 0);
+    skip("示例数据明示横幅", "当前库为用户数据，非示例数据");
+  }
   check("总资产卡", (await page.getByText("总资产").count()) > 0);
   check("明细分析折叠区", (await page.getByText("明细分析").count()) > 0);
   check("风险横幅", (await page.getByText(/发现 \d+ 项需关注|未发现明显风险项/).count()) > 0);

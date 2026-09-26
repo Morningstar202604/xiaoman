@@ -397,6 +397,15 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
 
   return (
     <div className="space-y-3">
+      {/* 示例数据横幅：首启种入的示例数据必须明说，避免被当成自己的真实数据 */}
+      {dashboard.source.seeded && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <span>当前显示的是示例数据，不是你的真实账本。</span>
+          <Button variant="outline" size="sm" className="h-6 px-2" onClick={() => onGoLedger?.()}>
+            记我的第一笔
+          </Button>
+        </div>
+      )}
       {/* 概览 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="总资产" value={fmtMoney(t.total_market_value, false, compact)} sub={`投入成本 ${fmtMoney(t.total_cost, false, compact)}`} />
