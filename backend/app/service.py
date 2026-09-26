@@ -40,6 +40,36 @@ GENERAL_FALLBACK = (
 QUESTION_MARKS = ("吗", "呢", "怎", "哪", "多少", "是不是", "?", "？")
 NL_MAX_LEN = 24
 
+# 多轮上下文：最多回看 4 轮，每条截断 400 字（控制 token 与外发体量）
+HISTORY_TURNS = 4
+HISTORY_ANSWER_CHARS = 400
+
+# 省略式追问：短句 + 指代词（「那上个月呢？」本身不含财务关键词，需承接上一轮）
+FOLLOWUP_MARKS = ("那", "它", "这个", "上个月", "上月", "刚才", "刚刚", "其中", "前面")
+FOLLOWUP_MAX_LEN = 12
+
+
+def _has_finance_word(text: str) -> bool:
+    q = text.lower()
+    return any(w in q for w in MARKET_WORDS) or any(w in q for w in LEDGER_WORDS)
+
+
+async def _is_finance_followup(question: str, thread_id: str | None) -> bool:
+    """判断是否为承接上一轮财务提问的省略追问。
+
+    四重约束同时成立才改判为财务路由：短句、含指代词、本会话上一轮是财务提问、已接入模型。
+    未接入模型时不改判——确定性内核只算「本月」，让它回答「上个月」是误导。
+    """
+    q = question.strip()
+    if not thread_id or len(q) > FOLLOWUP_MAX_LEN:
+        return False
+    if not any(m in q for m in FOLLOWUP_MARKS):
+        return False
+    if not await llm.llm_available():
+        return False
+    runs = await db.list_runs(thread_id, 1)
+    return bool(runs) and _has_finance_word(str(runs[0].get("question") or ""))
+
 
 def _looks_like_record(question: str) -> bool:
     """短句 + 无疑问词 + 能解析出金额 → 视为一句话记账指令。"""
@@ -131,11 +161,34 @@ async def _run_general(question: str, reason: str, emit: Emit) -> dict[str, Any]
     }
 
 
-async def run_question(question: str, emit: Emit) -> dict[str, Any]:
+async def _build_history(thread_id: str | None) -> list[dict[str, str]]:
+    """取本会话最近若干轮问答（时间正序），供模型理解「那上个月呢」这类省略追问。
+
+    仅财务路由调用：general 路由绝不带历史（财务内容不出机，见 R6/隐私边界）。
+    未接入模型时直接返回空，避免无意义的 DB 查询。
+    """
+    if not thread_id or not await llm.llm_available():
+        return []
+    runs = await db.list_runs(thread_id, HISTORY_TURNS)
+    out: list[dict[str, str]] = []
+    for r in reversed(runs):  # list_runs 是倒序（最新在前），翻成时间正序
+        q = str(r.get("question") or "").strip()
+        a = str(r.get("answer") or "").strip()
+        if q:
+            out.append({"role": "user", "content": q[:HISTORY_ANSWER_CHARS]})
+        if a:
+            out.append({"role": "assistant", "content": a[:HISTORY_ANSWER_CHARS]})
+    return out
+
+
+async def run_question(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
     """执行一轮问答，返回最终元信息（由调用方负责归档与转发 final 事件）。"""
     await emit({"type": "start", "question": question})
 
     route, reason = route_question(question)
+    # 省略式追问（「那上个月呢？」）不含财务关键词，需承接上一轮财务提问
+    if route == "general" and await _is_finance_followup(question, thread_id):
+        route, reason = "both", "承接上一轮财务提问的省略追问"
 
     # 一句话记账优先：短句且能解析出金额时直接入账（无需模型），不进入问答链路
     recorded = await _try_nl_add(question, reason, emit)
@@ -189,18 +242,27 @@ async def run_question(question: str, emit: Emit) -> dict[str, Any]:
     # 成文：模型润色（流式）→ 模板兜底
     level = "L2 建议" if flags else "L1 洞察"
     fallback = analysis.template_answer(market, ledger, flags, has_data=has_data)
+    history = await _build_history(thread_id)
     system = (
         "你是用户的个人理财助手。根据给定的持仓与账本数据，用简洁的中文回答用户的问题："
         "先一句话给结论，再分点列出关键数字，最后提示风险项（如有）。"
         "不要编造任何未给出的数字，不要给出具体买卖指令。"
     )
-    user = json.dumps({
+    if history:
+        system += (
+            "本次附带了同一会话的历史问答，用于理解「那上个月呢」这类省略追问："
+            "历史只作上下文参考，所有数字必须以本轮给定数据为准，不得沿用历史里的数字。"
+        )
+    user_obj: dict[str, Any] = {
         "question": question,
         "market": market,
         "ledger": ledger,
         "flags": flags,
         "level": level,
-    }, ensure_ascii=False)
+    }
+    if history:
+        user_obj["history"] = history
+    user = json.dumps(user_obj, ensure_ascii=False)
 
     await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "汇总结论与数字", "phase": "start"})
 

@@ -619,7 +619,7 @@ async def ask(payload: dict):
                 await db.delete_last_run(thread_id, question)
             except Exception:  # noqa: BLE001 — 删除失败则退化为普通追加
                 log.exception("delete_last_run failed")
-        result = await service.run_question(question, emit)
+        result = await service.run_question(question, emit, thread_id=thread_id)
         try:
             await db.save_run(
                 thread_id=thread_id,

@@ -226,6 +226,86 @@ async def test_report_still_generates_with_data(client) -> None:
     assert (await client.get("/api/reports")).json()["reports"]
 
 
+# —— 多轮上下文（c2）——
+def _capture_llm(monkeypatch) -> list[dict]:
+    """替换 stream_narrate 为记录调用参数的 fake，并模拟「已接入模型」；返回调用记录列表。"""
+    calls: list[dict] = []
+
+    async def fake_stream(system: str, user: str, fallback: str, history=None):
+        calls.append({"system": system, "user": user, "history": history or []})
+        yield "回答", "llm"
+
+    async def fake_available() -> bool:
+        return True
+
+    monkeypatch.setattr(service.llm, "stream_narrate", fake_stream)
+    monkeypatch.setattr(service.llm, "llm_available", fake_available)
+    return calls
+
+
+def _payload(call: dict) -> dict:
+    return json.loads(call["user"])
+
+
+async def test_ask_multi_turn_passes_history(client, monkeypatch) -> None:
+    calls = _capture_llm(monkeypatch)
+    tid = "multi-turn"
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id=tid)
+    final = await _ask(client, "那上个月呢？", thread_id=tid)
+    assert final["route"] == "both", "省略式追问应承接上一轮财务提问"
+    assert len(calls) == 2
+    second = _payload(calls[1])
+    hist = second.get("history") or []
+    assert len(hist) == 2, "第二问应带上第一轮的用户问 + 助手答"
+    assert "花到哪了" in hist[0]["content"] and hist[0]["role"] == "user"
+    assert hist[1]["role"] == "assistant"
+    assert second["question"] == "那上个月呢？", "当前问题必须在 payload 里"
+    assert "历史" in calls[1]["system"], "system prompt 应说明如何使用历史"
+
+
+async def test_followup_without_model_stays_general(client) -> None:
+    """未接入模型时不改判：确定性内核只算本月，回答「上个月」属误导。"""
+    tid = "followup-nomodel"
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id=tid)
+    final = await _ask(client, "那上个月呢？", thread_id=tid)
+    assert final["route"] == "general"
+
+
+async def test_general_route_never_sends_history(client, monkeypatch) -> None:
+    """隐私边界：general 路由不外发财务历史。"""
+    calls = _capture_llm(monkeypatch)
+    tid = "privacy"
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id=tid)
+    await _ask(client, "帮我写一段周末计划", thread_id=tid)
+    assert len(calls) == 2
+    assert "history" not in _payload(calls[1]), "general 路由不得携带任何历史消息"
+
+
+async def test_history_is_capped(client, monkeypatch) -> None:
+    calls = _capture_llm(monkeypatch)
+    tid = "capped"
+    for i in range(6):
+        await _ask(client, f"第{i}轮问题：我的持仓怎么样？", thread_id=tid)
+    hist = _payload(calls[-1]).get("history") or []
+    assert 0 < len(hist) <= 8, f"历史消息数应封顶（4 轮 = 8 条），实际 {len(hist)}"
+
+
+async def test_no_model_means_no_history_query(client, monkeypatch) -> None:
+    """未接入模型时不做历史查询（模板路径零额外 IO）。"""
+    tid = "no-model"
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id=tid)
+    calls: list[tuple] = []
+    orig = db.list_runs
+
+    async def spy(*a, **kw):
+        calls.append((a, kw))
+        return await orig(*a, **kw)
+
+    monkeypatch.setattr(service.db, "list_runs", spy)
+    await _ask(client, "那上个月呢？", thread_id=tid)
+    assert calls == [], "无模型时不应查询历史"
+
+
 # —— 对话内一句话记账（不依赖模型，命中即入账）——
 async def test_chat_nl_records_transaction(client) -> None:
     before = len((await client.get("/api/dashboard")).json()["transactions"])
