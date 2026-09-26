@@ -11,10 +11,12 @@ import json
 import logging
 import os
 import re
+import secrets
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +60,7 @@ app.add_middleware(
 # 最小鉴权：API_TOKEN 未设置 = 开放（仅限本机/内网）；设置后所有 /api/* 需带口令
 # ---------------------------------------------------------------------------
 
+
 @app.middleware("http")
 async def api_auth(request: Request, call_next):
     path = request.url.path
@@ -66,14 +69,70 @@ async def api_auth(request: Request, call_next):
         if key:
             token = request.query_params.get("token", "")
             header = request.headers.get("authorization", "")
-            if token != key and header != f"Bearer {key}":
+            if not (
+                secrets.compare_digest(token, key)
+                or secrets.compare_digest(header, f"Bearer {key}")
+            ):
                 return JSONResponse({"error": "需要访问口令"}, status_code=401)
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# 无口令模式的 Host/Origin 防护（DNS rebinding / 跨站读取）：
+# 未设 API_TOKEN 时仅放行本机与 ALLOWED_HOSTS 白名单；/api/health 恒免检；
+# 设了口令则以口令为准（反代部署不拦截）。注册在 api_auth 之后 = 更外层。
+# ---------------------------------------------------------------------------
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]", "testserver"}
+
+
+def _hostname(value: str) -> str:
+    """剥离端口的主机名（支持 host:port 与 [v6]:port）。"""
+    v = (value or "").strip().lower()
+    if v.startswith("["):
+        return v.split("]", 1)[0] + "]"
+    return v.rsplit(":", 1)[0] if v.count(":") == 1 else v
+
+
+def _allowed_hosts() -> set[str]:
+    extra = {
+        h.strip().lower()
+        for h in os.getenv("ALLOWED_HOSTS", "").split(",")
+        if h.strip()
+    }
+    return _LOCAL_HOSTS | extra
+
+
+@app.middleware("http")
+async def host_guard(request: Request, call_next):
+    path = request.url.path
+    if (
+        path.startswith("/api/")
+        and path != "/api/health"
+        and not os.getenv("API_TOKEN", "").strip()
+    ):
+        allowed = _allowed_hosts()
+        host = _hostname(request.headers.get("host", ""))
+        if host and host not in allowed:
+            return JSONResponse(
+                {
+                    "error": "不允许的 Host：未设置 API_TOKEN 时仅限本机/内网访问，"
+                    "如需按主机名部署请设置 ALLOWED_HOSTS 或 API_TOKEN"
+                },
+                status_code=403,
+            )
+        origin = request.headers.get("origin", "")
+        if origin:
+            oh = (urlsplit(origin).hostname or "").lower()
+            if oh and oh not in allowed and oh != host:
+                return JSONResponse({"error": "不允许的 Origin"}, status_code=403)
     return await call_next(request)
 
 
 # ---------------------------------------------------------------------------
 # 健康 / 引导 / 仪表盘
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/health")
 async def health() -> dict:
@@ -114,6 +173,7 @@ async def dashboard() -> dict:
 # ---------------------------------------------------------------------------
 # 数据录入（持仓 / 流水 / 负债）
 # ---------------------------------------------------------------------------
+
 
 @app.post("/api/positions")
 async def create_position(payload: dict) -> dict:
@@ -182,11 +242,15 @@ async def nl_add(payload: dict) -> dict:
             parsed, source = ai, "ai"
     if parsed is None:
         return JSONResponse(
-            {"error": "没读懂这句话，试试「昨天打车 32 元」「工资 8000 已到账」这样的说法"},
+            {
+                "error": "没读懂这句话，试试「昨天打车 32 元」「工资 8000 已到账」这样的说法"
+            },
             status_code=422,
         )
     try:
-        ins = await db.add_transaction(parsed["date"], parsed["item"], parsed["category"], parsed["amount"])
+        ins = await db.add_transaction(
+            parsed["date"], parsed["item"], parsed["category"], parsed["amount"]
+        )
         rows = await db.fetch_all("SELECT * FROM transactions WHERE id=?", (ins["id"],))
         tx = rows[0] if rows else {"id": ins["id"], **parsed}
     except Exception as exc:  # noqa: BLE001
@@ -197,6 +261,7 @@ async def nl_add(payload: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 账单导入（CSV）
 # ---------------------------------------------------------------------------
+
 
 @app.post("/api/import/csv")
 async def import_csv_parse(payload: dict) -> dict:
@@ -217,12 +282,15 @@ async def import_csv_parse(payload: dict) -> dict:
             status_code=422,
         )
     year = datetime.now().astimezone().strftime("%Y-%m")
-    rows, skips = csvimport.build_rows(mapping, parsed["columns"], parsed["rows"], year_fill=year)
+    rows, skips = csvimport.build_rows(
+        mapping, parsed["columns"], parsed["rows"], year_fill=year
+    )
     return {
         "ok": True,
         "columns": parsed["columns"],
         "mapping": mapping,
         "preview": rows[:15],
+        "rows": rows,
         "total": len(rows),
         "skipped": len(skips),
     }
@@ -262,8 +330,13 @@ async def import_csv_commit(payload: dict) -> dict:
 # 预算
 # ---------------------------------------------------------------------------
 
+
 def _current_month() -> str:
     return datetime.now().astimezone().strftime("%Y-%m")
+
+
+# 预算统计不计入的分类：储蓄与转移支付
+NON_CONSUMPTION_CATEGORIES = ("投资", "还款")
 
 
 @app.get("/api/budgets")
@@ -272,10 +345,17 @@ async def get_budgets(month: str | None = None) -> dict:
     m = (month or "").strip() or _current_month()
     rows = await db.list_budgets(m)
     budgets = [
-        {"category": "总预算" if r["category"] == "__total" else r["category"], "key": r["category"], "amount": r["amount"]}
+        {
+            "category": "总预算" if r["category"] == "__total" else r["category"],
+            "key": r["category"],
+            "amount": r["amount"],
+        }
         for r in rows
     ]
     spent_by_cat = await db.month_expense_by_category(m)
+    # 预算口径：投资/还款是储蓄与转移支付，不是消费支出，不计入预算使用
+    for cat in NON_CONSUMPTION_CATEGORIES:
+        spent_by_cat.pop(cat, None)
     total_spent = round(sum(spent_by_cat.values()), 2)
     total_budget = next((r["amount"] for r in rows if r["category"] == "__total"), 0.0)
 
@@ -285,20 +365,28 @@ async def get_budgets(month: str | None = None) -> dict:
         if key == "__total":
             continue
         spent = round(spent_by_cat.get(key, 0.0), 2)
-        cat_usage.append({
-            "category": b["category"],
-            "budget": b["amount"],
-            "spent": spent,
-            "pct": round(spent / b["amount"] * 100, 1) if b["amount"] else 0,
-            "over": spent > b["amount"],
-        })
+        cat_usage.append(
+            {
+                "category": b["category"],
+                "budget": b["amount"],
+                "spent": spent,
+                "pct": round(spent / b["amount"] * 100, 1) if b["amount"] else 0,
+                "over": spent > b["amount"],
+            }
+        )
 
     total_pct = round(total_spent / total_budget * 100, 1) if total_budget else 0
     # 剩余日均：余量 / 本月剩余天数（含今天）
     now = datetime.now().astimezone()
-    next_month = datetime(now.year + (now.month == 12), (now.month % 12) + 1, 1, tzinfo=now.tzinfo)
-    days_left = max(1, (next_month - now.replace(hour=0, minute=0, second=0, microsecond=0)).days)
-    left_daily = round((total_budget - total_spent) / days_left, 2) if total_budget else 0.0
+    next_month = datetime(
+        now.year + (now.month == 12), (now.month % 12) + 1, 1, tzinfo=now.tzinfo
+    )
+    days_left = max(
+        1, (next_month - now.replace(hour=0, minute=0, second=0, microsecond=0)).days
+    )
+    left_daily = (
+        round((total_budget - total_spent) / days_left, 2) if total_budget else 0.0
+    )
 
     return {
         "month": m,
@@ -324,7 +412,7 @@ async def put_budgets(payload: dict) -> dict:
     items = (payload or {}).get("budgets")
     if not isinstance(items, list):
         return JSONResponse({"error": "budgets 需为数组"}, status_code=400)
-    clean = []
+    clean_map: dict[str, float] = {}
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -333,7 +421,9 @@ async def put_budgets(payload: dict) -> dict:
         except (TypeError, ValueError):
             return JSONResponse({"error": "预算金额不合法"}, status_code=400)
         if amt > 0:
-            clean.append({"category": str(it.get("category", "__total")), "amount": amt})
+            # 同分类后一项覆盖前一项（upsert 语义），避免主键冲突
+            clean_map[str(it.get("category", "__total"))] = amt
+    clean = [{"category": k, "amount": v} for k, v in clean_map.items()]
     await db.save_budgets(month, clean)
     return {"ok": True, "month": month, "count": len(clean)}
 
@@ -363,11 +453,21 @@ async def reset_portfolio() -> dict:
 # 设置
 # ---------------------------------------------------------------------------
 
-NUMERIC_KEYS = ("monthly_income", "emergency_target_months", "savings_goal", "auto_refresh_seconds")
+NUMERIC_KEYS = (
+    "monthly_income",
+    "emergency_target_months",
+    "savings_goal",
+    "auto_refresh_seconds",
+)
 QUOTE_MODES = ("auto", "snapshot", "eastmoney")
 ONOFF_KEYS = (
-    "voice_input", "show_export", "expand_process", "show_suggestions",
-    "auto_refresh", "compact_numbers", "ai_enabled",
+    "voice_input",
+    "show_export",
+    "expand_process",
+    "show_suggestions",
+    "auto_refresh",
+    "compact_numbers",
+    "ai_enabled",
 )
 # AI 配置：文本直存（key 仅存本机数据库）
 AI_TEXT_KEYS = ("ai_base_url", "ai_api_key", "ai_model")
@@ -421,7 +521,7 @@ async def put_settings(payload: dict) -> dict:
                 continue
             applied[key] = str(raw).strip()
         elif key == "essential_categories":
-            cats = [c for c in str(raw).split(",") if c.strip()]
+            cats = [c.strip() for c in str(raw).split(",") if c.strip()]
             if not cats:
                 errors.append("必要支出类别不能为空")
                 continue
@@ -438,7 +538,9 @@ async def put_settings(payload: dict) -> dict:
     for k, v in applied.items():
         await db.set_setting(k, v)
     # AI 配置变化后使 llm 重新读取
-    if any(k in applied for k in ("ai_enabled", "ai_base_url", "ai_api_key", "ai_model")):
+    if any(
+        k in applied for k in ("ai_enabled", "ai_base_url", "ai_api_key", "ai_model")
+    ):
         llm.invalidate()
     if "quote_source_mode" in applied:
         await invalidate_quotes_cache()
@@ -455,6 +557,7 @@ async def put_settings(payload: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 问答：SSE 流式
 # ---------------------------------------------------------------------------
+
 
 def sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
@@ -473,7 +576,9 @@ async def _sse_stream(first: dict, runner) -> StreamingResponse:
             try:
                 await runner(emit)
             except Exception as exc:  # noqa: BLE001 — 让前端看到真实错误
-                await queue.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+                await queue.put(
+                    {"type": "error", "message": f"{type(exc).__name__}: {exc}"}
+                )
             finally:
                 await queue.put(None)
 
@@ -511,7 +616,7 @@ async def ask(payload: dict):
         # 重新生成：先移除该会话最后一条问答，再以同一问题重新作答（替换而非追加）
         if regenerate:
             try:
-                await db.delete_last_run(thread_id)
+                await db.delete_last_run(thread_id, question)
             except Exception:  # noqa: BLE001 — 删除失败则退化为普通追加
                 log.exception("delete_last_run failed")
         result = await service.run_question(question, emit)
@@ -525,16 +630,18 @@ async def ask(payload: dict):
             )
         except Exception:  # noqa: BLE001 — 落库失败不打断交付
             log.exception("save_run failed")
-        await emit({
-            "type": "final",
-            "answer": result["answer"],
-            "level": result["level"],
-            "route": result["route"],
-            "route_reason": result["route_reason"],
-            "metrics": result["metrics"],
-            "flags": result["flags"],
-            "llm": result["llm"],
-        })
+        await emit(
+            {
+                "type": "final",
+                "answer": result["answer"],
+                "level": result["level"],
+                "route": result["route"],
+                "route_reason": result["route_reason"],
+                "metrics": result["metrics"],
+                "flags": result["flags"],
+                "llm": result["llm"],
+            }
+        )
 
     return await _sse_stream({"type": "start", "question": question}, runner)
 
@@ -542,6 +649,7 @@ async def ask(payload: dict):
 # ---------------------------------------------------------------------------
 # 历史 / 晨报
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/history")
 async def history(thread_id: str | None = None, limit: int = 50) -> dict:
@@ -551,6 +659,7 @@ async def history(thread_id: str | None = None, limit: int = 50) -> dict:
 # ---------------------------------------------------------------------------
 # 会话管理（多会话）
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/sessions")
 async def sessions() -> dict:
@@ -580,6 +689,7 @@ async def delete_session(session_id: int) -> dict:
 # 数据导出 / 月度趋势
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/export")
 async def export_data() -> dict:
     return await db.export_data()
@@ -601,6 +711,9 @@ async def generate_report_now() -> dict:
         result = await scheduler.generate_report()
     except Exception as exc:  # noqa: BLE001 — 手动触发失败要给可读错误
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    if result.get("skipped"):
+        # 空库不生成（前端据此提示「还没有数据」而非假装成功）
+        return {"ok": True, "skipped": True, "reason": result.get("reason", "no_data")}
     return {"ok": True, "answer": result["answer"], "level": result["level"]}
 
 
@@ -614,6 +727,7 @@ async def scheduler_status() -> dict:
 # ---------------------------------------------------------------------------
 
 if FRONTEND_DIST.is_dir():
+
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
         return FileResponse(
@@ -623,6 +737,7 @@ if FRONTEND_DIST.is_dir():
 
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="web")
 else:
+
     @app.get("/", include_in_schema=False)
     async def placeholder() -> dict:
         return {"message": "前端未构建：cd frontend && npm install && npm run build"}

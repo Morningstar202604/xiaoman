@@ -21,12 +21,27 @@ from .quotes import live_quotes
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
 
-MARKET_WORDS = ("股票", "基金", "持仓", "仓位", "组合", "收益", "亏", "涨", "跌", "etf", "市值", "集中度", "配置")
-LEDGER_WORDS = ("花", "支出", "记账", "账", "预算", "订阅", "会员", "还款", "负债", "房贷", "信用卡", "现金流", "存", "省", "应急金", "储蓄")
+MARKET_WORDS = ("股票", "基金", "持仓", "仓位", "组合", "收益", "亏", "涨", "跌", "etf", "市值", "资产", "集中度", "配置")
+LEDGER_WORDS = ("花", "支出", "记账", "账", "预算", "订阅", "会员", "还款", "负债", "房贷", "信用卡", "现金流", "存", "省", "应急金", "储蓄", "收入", "余额", "工资")
+
+GENERAL_SYSTEM = (
+    "你是一个通用 AI 助手，同时具备个人理财工具的能力。"
+    "普通问题（写作、翻译、编程、闲聊等）直接正常回答；"
+    "遇到与用户财务相关的问题，如实说明你还没有该问题的数据，"
+    "并提示可以在应用里记账或添加持仓后再问。不要编造任何数字。"
+)
+GENERAL_FALLBACK = (
+    "当前没有接入模型，自由问答需要先到「设置 → AI 回答」配置模型端点。"
+    "不过记账和确定性分析我离线就能做：去「记账」一句话记一笔，"
+    "或问我持仓、收支、负债与风险。"
+)
 
 
 def route_question(question: str) -> tuple[str, str]:
-    """规则分类（不调模型）：命中投资词 → market，命中收支词 → ledger，都命中/都不确定 → both。"""
+    """规则分类（不调模型）：命中投资词 → market，命中收支词 → ledger，都命中 → both，都不命中 → general。
+
+    宁缺毋滥：不确定是否问财务时一律 general，绝不做「猜测式财务综合分析」。
+    """
     q = question.lower()
     hit_m = [w for w in MARKET_WORDS if w in q]
     hit_l = [w for w in LEDGER_WORDS if w in q]
@@ -36,7 +51,35 @@ def route_question(question: str) -> tuple[str, str]:
         return "market", f"涉及持仓/行情（{hit_m[0]}）"
     if hit_l:
         return "ledger", f"涉及收支/负债（{hit_l[0]}）"
-    return "both", "未明确指向，综合看持仓与收支"
+    return "general", "未命中财务关键词，按通用问答处理"
+
+
+async def _run_general(question: str, reason: str, emit: Emit) -> dict[str, Any]:
+    """通用问答：跳过取数与风控，不注入也不外发任何财务数据，不拼财务免责声明。"""
+    await emit({
+        "type": "step", "id": "supervisor", "label": "理解问题",
+        "detail": f"{reason}，直接回答", "phase": "done",
+    })
+    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "生成回答", "phase": "start"})
+
+    user = json.dumps({"question": question}, ensure_ascii=False)
+    chunks: list[str] = []
+    src = "template"
+    async for delta, s in llm.stream_narrate(GENERAL_SYSTEM, user, GENERAL_FALLBACK):
+        src = s
+        chunks.append(delta)
+        await emit({"type": "text", "delta": delta})
+
+    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "已完成", "phase": "done"})
+    return {
+        "answer": "".join(chunks).strip() or GENERAL_FALLBACK,
+        "level": "L0 通用",
+        "route": "general",
+        "route_reason": reason,
+        "metrics": {},
+        "flags": [],
+        "llm": src,
+    }
 
 
 async def run_question(question: str, emit: Emit) -> dict[str, Any]:
@@ -44,6 +87,9 @@ async def run_question(question: str, emit: Emit) -> dict[str, Any]:
     await emit({"type": "start", "question": question})
 
     route, reason = route_question(question)
+    if route == "general":
+        return await _run_general(question, reason, emit)
+
     await emit({
         "type": "step", "id": "supervisor", "label": "理解问题",
         "detail": f"{reason}，开始分析", "phase": "done",
@@ -55,6 +101,7 @@ async def run_question(question: str, emit: Emit) -> dict[str, Any]:
     # 取数分析（市场 / 账本视角共用同一份行情）
     positions = await db.list_positions()
     live = await live_quotes(positions)
+    has_data = bool(positions) or bool(await db.fetch_all("SELECT 1 FROM transactions LIMIT 1"))
 
     if "market" in routes:
         await emit({"type": "step", "id": "market", "label": "查看持仓", "detail": "拉取持仓与行情，计算盈亏与集中度", "phase": "start"})
@@ -86,7 +133,7 @@ async def run_question(question: str, emit: Emit) -> dict[str, Any]:
 
     # 成文：模型润色（流式）→ 模板兜底
     level = "L2 建议" if flags else "L1 洞察"
-    fallback = analysis.template_answer(market, ledger, flags)
+    fallback = analysis.template_answer(market, ledger, flags, has_data=has_data)
     system = (
         "你是用户的个人理财助手。根据给定的持仓与账本数据，用简洁的中文回答用户的问题："
         "先一句话给结论，再分点列出关键数字，最后提示风险项（如有）。"

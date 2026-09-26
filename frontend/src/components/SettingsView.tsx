@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
-  Brain, Download, KeyRound, Newspaper, Palette, RefreshCw, ShieldCheck, SlidersHorizontal, Sparkles,
+  Brain, Download, KeyRound, Newspaper, PiggyBank, RefreshCw, ShieldCheck, SlidersHorizontal, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Segmented } from "@/components/ui/segmented";
-import { useTheme, BRAND_OPTIONS } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ui/confirm";
+import { useTheme } from "@/lib/theme";
 import { api, getToken, setToken } from "@/lib/api";
 import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
@@ -18,6 +20,27 @@ import type { RunRecord } from "@/lib/types";
 const inputCls =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 const labelCls = "block text-xs text-muted-foreground mb-1";
+
+type SectionId = "prefs" | "rules" | "budget" | "ai" | "report" | "data" | "token";
+
+const SECTIONS: { id: SectionId; label: string; icon: typeof Wallet }[] = [
+  { id: "prefs", label: "偏好", icon: SlidersHorizontal },
+  { id: "rules", label: "账本规则", icon: Wallet },
+  { id: "budget", label: "预算", icon: PiggyBank },
+  { id: "ai", label: "AI 回答", icon: Brain },
+  { id: "report", label: "每日晨报", icon: Newspaper },
+  { id: "data", label: "数据与状态", icon: ShieldCheck },
+  { id: "token", label: "访问口令", icon: KeyRound },
+];
+
+/** 「保存设置」按钮覆盖的键（其余开关即时生效、AI 配置走独立保存）。 */
+const BATCH_KEYS = [
+  "monthly_income",
+  "emergency_target_months",
+  "essential_categories",
+  "savings_goal",
+  "report_time",
+] as const;
 
 function Section({
   title,
@@ -59,10 +82,12 @@ export function SettingsView() {
   const { toast } = useToast();
   const theme = useTheme();
 
-  const { theme: themeMode, setTheme, brand, setBrand, density, setDensity, motion, setMotion } = theme;
+  const { theme: themeMode, setTheme } = theme;
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [active, setActive] = useState<SectionId>("prefs");
+  const [resetOpen, setResetOpen] = useState(false);
   const [tokenInput, setTokenInput] = useState(getToken());
   const [reports, setReports] = useState<RunRecord[]>([]);
   const [budgetTotal, setBudgetTotal] = useState("");
@@ -132,9 +157,13 @@ export function SettingsView() {
   const save = async () => {
     setSaving(true);
     try {
+      // 只提交表单自有字段：bootstrap.settings 里含 data_note 等服务端内部键，
+      // 整包回传会被后端判为「未知配置项」，导致保存必失败。
+      const settings: Record<string, string> = {};
+      for (const k of BATCH_KEYS) if (form[k] !== undefined) settings[k] = form[k];
       const res = await api<{ ok: boolean; errors: string[] }>("/api/settings", {
         method: "PUT",
-        body: JSON.stringify({ settings: form }),
+        body: JSON.stringify({ settings }),
       });
       if (res.errors.length) {
         toast(`保存失败：${res.errors.join("；")}`, "error");
@@ -175,7 +204,6 @@ export function SettingsView() {
   };
 
   const resetSeed = async () => {
-    if (!window.confirm("恢复示例数据会覆盖当前的持仓、流水与负债，确定吗？")) return;
     await api("/api/portfolio/reset", { method: "POST" });
     await store.refreshBootstrap();
     store.bump();
@@ -224,103 +252,66 @@ export function SettingsView() {
   const sc = bootstrap.scheduler;
 
   return (
-    <div className="space-y-3">
-      {/* 外观 */}
-      <Section title="外观" icon={<Palette className="w-4 h-4 text-muted-foreground" />} desc="即时生效，保存在本机浏览器">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">主题模式</span>
-            <Segmented
-              value={themeMode}
-              onChange={setTheme}
-              options={[
-                { value: "light", label: "浅色" },
-                { value: "dark", label: "深色" },
-                { value: "system", label: "跟随系统" },
-              ]}
-            />
-          </div>
-          <div>
-            <div className="text-sm mb-1.5">品牌色</div>
-            <div className="flex gap-2">
-              {BRAND_OPTIONS.map((b) => (
-                <button
-                  key={b.id}
-                  type="button"
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors",
-                    brand === b.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/50",
-                  )}
-                  onClick={() => setBrand(b.id)}
-                >
-                  <span
-                    className="w-3.5 h-3.5 rounded-full border border-black/10"
-                    style={{ background: b.accent }}
-                  />
-                  {b.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">界面密度</span>
-            <Segmented
-              value={density}
-              onChange={setDensity}
-              options={[
-                { value: "comfortable", label: "舒适" },
-                { value: "compact", label: "紧凑" },
-              ]}
-            />
-          </div>
-          <Row label="界面动效" hint="切换、数字滚动等过渡动画">
-            <Switch checked={motion === "on"} onChange={(v) => setMotion(v ? "on" : "off")} label="界面动效" />
-          </Row>
-        </div>
-      </Section>
+    <div className="md:flex md:items-start md:gap-3">
+      <nav className="grid grid-cols-4 md:grid-cols-1 gap-1.5 md:w-48 md:shrink-0 md:sticky md:top-4 mb-3 md:mb-0">
+        {SECTIONS.map((s) => {
+          const Icon = s.icon;
+          const on = active === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              aria-current={on ? "page" : undefined}
+              onClick={() => setActive(s.id)}
+              className={cn(
+                "flex flex-col md:flex-row items-center justify-center md:justify-start gap-1 rounded-lg px-2 py-2 text-xs transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                on
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="truncate">{s.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
-      {/* 功能开关 */}
-      <Section title="功能开关" icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />} desc="保存后对所有设备生效">
-        <div className="divide-y divide-border/60">
-          <Row label="语音提问" hint="问答页显示麦克风按钮（需浏览器支持）">
-            <Switch checked={form.voice_input === "on"} onChange={() => toggle("voice_input")} label="语音提问" />
-          </Row>
-          <Row label="回答导出" hint="每条回答可复制 / 下载 Markdown">
-            <Switch checked={form.show_export === "on"} onChange={() => toggle("show_export")} label="回答导出" />
-          </Row>
-          <Row label="分析过程默认展开" hint="问答的「查看分析过程」默认显示">
-            <Switch checked={form.expand_process === "on"} onChange={() => toggle("expand_process")} label="分析过程默认展开" />
-          </Row>
-          <Row label="建议入口" hint="问答空状态显示推荐问题">
-            <Switch checked={form.show_suggestions === "on"} onChange={() => toggle("show_suggestions")} label="建议入口" />
-          </Row>
-          <Row label="仪表盘自动刷新" hint="行情/账本变更时后台定时刷新">
-            <Switch checked={form.auto_refresh === "on"} onChange={() => toggle("auto_refresh")} label="仪表盘自动刷新" />
-          </Row>
-          {form.auto_refresh === "on" && (
-            <div className="py-2 flex items-center justify-between">
-              <span className="text-sm">刷新间隔（秒）</span>
-              <input
-                type="number"
-                min={30}
-                max={86400}
-                step={30}
-                className={cn(inputCls, "w-28 text-right")}
-                value={form.auto_refresh_seconds ?? "300"}
-                onChange={(e) => set("auto_refresh_seconds", e.target.value)}
-              />
-            </div>
-          )}
-          <Row label="大金额缩写" hint="≥1 万显示为「3.0万」，关闭则显示完整数字">
-            <Switch checked={form.compact_numbers === "on"} onChange={() => toggle("compact_numbers")} label="大金额缩写" />
-          </Row>
+      <motion.div
+        key={active}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className="flex-1 min-w-0 space-y-3"
+      >
+      {/* 偏好：只留日常会动的两项，其余工程开关全部砍掉 */}
+      {active === "prefs" && (
+      <Section title="偏好" icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />} desc="即时生效，保存在本机浏览器">
+        <div className="flex items-center justify-between">
+          <span className="text-sm">主题模式</span>
+          <Segmented
+            value={themeMode}
+            onChange={setTheme}
+            options={[
+              { value: "light", label: "浅色" },
+              { value: "dark", label: "深色" },
+              { value: "system", label: "跟随系统" },
+            ]}
+          />
         </div>
-      </Section>
+        <div className="mt-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm">语音提问</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">问答页显示麦克风按钮（需浏览器支持）</div>
+          </div>
+          <Switch checked={form.voice_input === "on"} onChange={() => toggle("voice_input")} label="语音提问" />
+        </div>
+      </Section>)}
 
       {/* 账本假设 */}
-      <Section title="账本假设" desc="用于结余、储蓄率、应急金等计算口径">
+      {active === "rules" && (
+      <Section title="账本规则" icon={<Wallet className="w-4 h-4 text-muted-foreground" />} desc="用于结余、储蓄率、应急金等计算口径">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls}>月收入（元）</label>
@@ -339,9 +330,10 @@ export function SettingsView() {
             <input className={inputCls} type="number" value={form.savings_goal ?? "20"} onChange={(e) => set("savings_goal", e.target.value)} />
           </div>
         </div>
-      </Section>
+      </Section>)}
 
       {/* 预算 */}
+      {active === "budget" && (
       <Section
         title="预算"
         desc="设置本月总预算与分类预算，仪表盘实时展示进度、剩余日均与超支预警"
@@ -369,18 +361,22 @@ export function SettingsView() {
             </Button>
           </div>
         </div>
-      </Section>
+      </Section>)}
 
       {/* AI 回答 */}
+      {active === "ai" && (
       <Section
         title="AI 回答"
         icon={<Brain className="w-4 h-4 text-muted-foreground" />}
-        desc="接入任意 OpenAI 兼容模型（豆包 / DeepSeek / 通义 / Agnes 等）。未配置或调用失败时自动回退内置分析。"
+        desc="可选。接入任意 OpenAI 兼容模型（豆包 / DeepSeek / 通义等）。未配置或调用失败时自动回退内置分析。"
       >
         <div className="space-y-3">
           <Row label="启用 AI 回答" hint="开启后问答优先使用 AI 生成，失败自动降级">
             <Switch checked={form.ai_enabled === "on"} onChange={() => toggle("ai_enabled")} label="启用 AI 回答" />
           </Row>
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
+            开启后，你的持仓与账本摘要会随问题发送到你配置的模型服务商。介意数据出机请保持关闭，内置分析已能回答全部问题。
+          </div>
           <div>
             <label className={labelCls}>接口地址（Base URL）</label>
             <input
@@ -419,19 +415,10 @@ export function SettingsView() {
             </Button>
           </div>
         </div>
-      </Section>
+      </Section>)}
 
-      {/* 行情源 */}
-      <Section title="行情源" icon={<RefreshCw className="w-4 h-4 text-muted-foreground" />}>
-        <select className={inputCls} value={form.quote_source_mode ?? "auto"} onChange={(e) => set("quote_source_mode", e.target.value)}>
-          <option value="auto">自动：东财实时价，失败降级快照</option>
-          <option value="eastmoney">仅东财实时价</option>
-          <option value="snapshot">仅快照价（离线可用）</option>
-        </select>
-        <div className="mt-2 text-xs text-muted-foreground">当前：{bootstrap.source.quotes}</div>
-      </Section>
-
-      {/* 每日晨报 */}
+      {/* 每日晨报：默认只留时间 + 立即生成，历史收进折叠 */}
+      {active === "report" && (
       <Section title="每日晨报" icon={<Newspaper className="w-4 h-4 text-muted-foreground" />}>
         <div className="flex items-end gap-2">
           <div className="w-36">
@@ -443,7 +430,13 @@ export function SettingsView() {
             size="sm"
             onClick={async () => {
               try {
-                const r = await api<{ ok: boolean }>("/api/reports/generate", { method: "POST" });
+                const r = await api<{ ok: boolean; skipped?: boolean }>("/api/reports/generate", {
+                  method: "POST",
+                });
+                if (r.skipped) {
+                  toast("还没有数据，暂不生成晨报", "error");
+                  return;
+                }
                 toast(r.ok ? "晨报已生成" : "生成失败", r.ok ? "ok" : "error");
                 store.bump();
                 void loadReports();
@@ -459,43 +452,57 @@ export function SettingsView() {
           {sc.enabled ? `下次：${sc.next_run_at ?? "—"}` : "定时任务未启用"}
           {sc.generated > 0 ? ` · 已生成 ${sc.generated} 份` : ""}
         </div>
-        {reports.length > 0 && (
-          <div className="mt-3 space-y-1.5">
-            <div className="text-xs text-muted-foreground">最近晨报</div>
-            {reports.map((r) => (
-              <details key={r.id} className="rounded-lg border border-border bg-card px-2.5 py-2 text-xs">
-                <summary className="flex cursor-pointer items-center justify-between text-muted-foreground">
-                  <span>{fmtDate(r.created_at ?? "")}</span>
-                  <Badge variant={r.level === "L2 建议" ? "warn" : "ok"}>{r.level}</Badge>
-                </summary>
-                <div className="mt-1.5 whitespace-pre-wrap text-foreground">{r.answer}</div>
-              </details>
-            ))}
-          </div>
-        )}
-      </Section>
+        <details className="mt-3 group">
+          <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-foreground">
+            最近晨报{reports.length > 0 ? `（${reports.length}）` : ""}
+          </summary>
+          {reports.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {reports.map((r) => (
+                <details key={r.id} className="rounded-lg border border-border bg-card px-2.5 py-2 text-xs">
+                  <summary className="flex cursor-pointer items-center justify-between text-muted-foreground">
+                    <span>{fmtDate(r.created_at ?? "")}</span>
+                    <Badge variant={r.level === "L2 建议" ? "warn" : "ok"}>{r.level}</Badge>
+                  </summary>
+                  <div className="mt-1.5 whitespace-pre-wrap text-foreground">{r.answer}</div>
+                </details>
+              ))}
+            </div>
+          )}
+        </details>
+      </Section>)}
 
       {/* 数据 */}
-      <Section title="数据管理" icon={<ShieldCheck className="w-4 h-4 text-muted-foreground" />}>
+      {active === "data" && (
+      <Section title="数据与状态" icon={<ShieldCheck className="w-4 h-4 text-muted-foreground" />}>
         <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span>行情来源</span><span className="text-right text-foreground">{bootstrap.source.quotes}</span>
+            <span>组合数据</span><span className="text-right text-foreground">{bootstrap.source.portfolio}</span>
+            <span>模型</span>
+            <span className="text-right text-foreground">
+              {bootstrap.health.llm_configured ? bootstrap.health.model : "未配置（内置分析）"}
+            </span>
+          </div>
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">
               {bootstrap.source.seeded ? "当前为示例数据，可到「记账」改成自己的真实数据。" : "当前是你的真实数据。"}
             </div>
-            <Button variant="outline" size="sm" onClick={() => void resetSeed()}>
+            <Button variant="outline" size="sm" onClick={() => setResetOpen(true)}>
               恢复示例数据
             </Button>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">导出全部数据为 JSON 备份（持仓/流水/负债/设置/问答）</div>
+            <div className="text-xs text-muted-foreground">导出全部数据为 JSON 备份（AI Key 已自动脱敏）</div>
             <Button variant="outline" size="sm" onClick={() => void exportBackup()}>
               <Download className="w-3.5 h-3.5" /> 导出备份
             </Button>
           </div>
         </div>
-      </Section>
+      </Section>)}
 
       {/* 访问口令 */}
+      {active === "token" && (
       <Section title="访问口令" icon={<KeyRound className="w-4 h-4 text-muted-foreground" />}>
         <div className="flex items-end gap-2">
           <div className="flex-1">
@@ -509,21 +516,25 @@ export function SettingsView() {
         <div className="mt-2 text-[11px] text-muted-foreground">
           未在服务端设置 API_TOKEN 时无需口令；公网部署请务必设置。
         </div>
-      </Section>
+      </Section>)}
 
-      {/* 系统信息 */}
-      <Section title="系统信息" icon={<Sparkles className="w-4 h-4 text-muted-foreground" />}>
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <div className="flex justify-between"><span>模型</span><span>{bootstrap.health.llm_configured ? bootstrap.health.model : "未配置（当前用内置分析出答案）"}</span></div>
-          <div className="flex justify-between"><span>组合数据</span><span>{bootstrap.source.portfolio}</span></div>
-          <div className="flex justify-between"><span>账本数据</span><span>{bootstrap.source.ledger}</span></div>
-          <div className="flex justify-between"><span>品牌</span><Badge variant="muted">随身理财</Badge></div>
-        </div>
-      </Section>
+      {/* 全局保存只覆盖「账本规则 / 每日晨报」的表单字段；其余界面各自即存或有独立保存按钮 */}
+      {(active === "rules" || active === "report") && (
+        <Button className="w-full" onClick={() => void save()} disabled={saving}>
+          {saving ? "保存中…" : "保存设置"}
+        </Button>
+      )}
+      </motion.div>
 
-      <Button className="w-full" onClick={() => void save()} disabled={saving}>
-        {saving ? "保存中…" : "保存设置"}
-      </Button>
+      <ConfirmDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        title="恢复示例数据"
+        description="恢复示例数据会覆盖当前的持仓、流水与负债，确定吗？"
+        confirmText="恢复"
+        danger
+        onConfirm={() => void resetSeed()}
+      />
     </div>
   );
 }

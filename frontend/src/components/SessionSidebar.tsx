@@ -13,9 +13,9 @@ import type { SessionItem } from "@/lib/types";
 type SidebarTab = "dashboard" | "chat" | "ledger" | "settings";
 
 const NAV: { id: SidebarTab; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: "dashboard", label: "仪表盘", icon: LayoutDashboard },
   { id: "chat", label: "问答", icon: MessageSquare },
   { id: "ledger", label: "记账", icon: NotebookPen },
+  { id: "dashboard", label: "总览", icon: LayoutDashboard },
 ];
 
 export function SessionSidebar({
@@ -54,11 +54,11 @@ export function SessionSidebar({
 
   return (
     <div className="flex h-full flex-col">
-      {/* 品牌：点击回仪表盘 */}
+      {/* 品牌：点击回问答首页（chat-first）*/}
       <button
         type="button"
         className="flex items-center gap-2.5 px-4 py-3.5 text-left"
-        onClick={() => onNavigate("dashboard")}
+        onClick={() => go("chat")}
       >
         <BrandLogo size={30} />
         <span>
@@ -73,8 +73,10 @@ export function SessionSidebar({
           <button
             key={n.id}
             type="button"
+            aria-current={tab === n.id ? "page" : undefined}
             className={cn(
               "w-full flex items-center gap-2 rounded-[calc(var(--radius)-2px)] px-3 py-2 text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               tab === n.id
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",

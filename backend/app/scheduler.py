@@ -40,12 +40,31 @@ def _parse_time(value: str | None) -> tuple[int, int] | None:
         return None
 
 
+async def has_data() -> bool:
+    """库中是否已有持仓或流水（空库不生成无意义的晨报）。"""
+    if await db.list_positions():
+        return True
+    return bool(await db.fetch_all("SELECT 1 FROM transactions LIMIT 1"))
+
+
 async def generate_report() -> dict[str, Any]:
-    """生成一次晨报并归档。手动触发（POST /api/reports/generate）与定时共用。"""
+    """生成一次晨报并归档。手动触发（POST /api/reports/generate）与定时共用。
+
+    空库时返回 skipped=True 并跳过归档：无内容的定时产出只是噪音。
+    """
     events: list[dict[str, Any]] = []
 
     async def emit(e: dict[str, Any]) -> None:
         events.append(e)
+
+    if not await has_data():
+        return {
+            "skipped": True,
+            "reason": "no_data",
+            "answer": "",
+            "level": "",
+            "flags": [],
+        }
 
     try:
         result = await service.run_question(REPORT_QUESTION, emit)

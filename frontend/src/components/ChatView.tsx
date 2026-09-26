@@ -5,10 +5,11 @@ import {
   ChevronDown, ChevronUp, Copy, Download, Loader2, MessageCircle, Mic, MicOff, RotateCcw, Search, Send, Square, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SummaryBlock } from "@/components/SummaryBlock";
 import { BrandLogo, BRAND } from "@/lib/brand";
-import { apiStream } from "@/lib/api";
+import { api, apiStream } from "@/lib/api";
 import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { fmtDate } from "@/lib/format";
@@ -39,6 +40,13 @@ const BASE_SUGGESTIONS = [
   "我的组合现在赚还是亏？",
 ];
 
+/** 无数据时的引导建议：不假设用户已有持仓/账本（chat-first 首屏）。 */
+const GENERIC_SUGGESTIONS = [
+  "这个月怎么省钱，有什么建议？",
+  "一句话记账怎么用？",
+  "支持哪些方式导入账单？",
+];
+
 /** 依据仪表盘风险项生成针对性追问（贴合当前数据，不是固定文案）。
  *  注意：后端 risk_checks 的 code 全大写（CONCENTRATION 等），这里必须一一对应。 */
 function dynamicSuggestions(flags: RunRecord["flags"]): string[] {
@@ -62,11 +70,14 @@ export function ChatView({
   threadId,
   onNewSession,
   onSwitch,
+  onOpenSettings,
 }: {
   threadId: string;
   onNewSession: () => void;
   /** 切换到另一个会话（桌面走侧栏，移动端走顶部下拉） */
   onSwitch: (threadId: string) => void;
+  /** 跳转设置页（未接入 AI 时的引导入口） */
+  onOpenSettings: () => void;
 }) {
   const { dashboard, bootstrap, sessions } = store.useApp();
   const { toast } = useToast();
@@ -104,9 +115,8 @@ export function ChatView({
     let alive = true;
     setMessages([]);
     setShowSteps((bootstrap?.settings.expand_process ?? "off") === "on");
-    fetch(`/api/history?thread_id=${encodeURIComponent(threadId)}&limit=50`)
-      .then((r) => r.json())
-      .then((d: { runs: RunRecord[] }) => {
+    api<{ runs: RunRecord[] }>(`/api/history?thread_id=${encodeURIComponent(threadId)}&limit=50`)
+      .then((d) => {
         if (!alive) return;
         const loaded: ChatMessage[] = (d.runs ?? [])
           .slice()
@@ -126,7 +136,6 @@ export function ChatView({
                 route_reason: "",
                 metrics: {},
                 flags: r.flags,
-                llm: "template",
               },
               created_at: r.created_at,
             },
@@ -307,8 +316,13 @@ export function ChatView({
     }
   };
 
+  // chat-first：有无数据决定首屏话术与建议（无数据时不做持仓/账本假设）
+  const hasData =
+    (dashboard?.positions.length ?? 0) > 0 || (dashboard?.transactions.length ?? 0) > 0;
   const suggestions = suggestionsOn
-    ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTIONS].slice(0, 5)
+    ? hasData
+      ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTIONS].slice(0, 5)
+      : GENERIC_SUGGESTIONS
     : [];
 
   return (
@@ -386,10 +400,21 @@ export function ChatView({
             <div className="flex justify-center mb-4">
               <BrandLogo size={44} />
             </div>
-            <div className="text-lg font-semibold">问你的钱，这里都有答案</div>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
-              基于你的持仓与账本，回答关于盈亏、支出、负债和风险的问题。
-            </p>
+            {hasData ? (
+              <>
+                <div className="text-lg font-semibold">问你的钱，这里都有答案</div>
+                <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+                  基于你的持仓与账本，回答关于盈亏、支出、负债和风险的问题。
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-lg font-semibold">我是随身理财</div>
+                <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+                  没有数据也能聊：先随便问问，或去「记账」记下第一笔，再让我帮你分析。
+                </p>
+              </>
+            )}
             {suggestions.length > 0 && (
               <div className="mt-5 flex flex-col gap-2 max-w-sm mx-auto">
                 {suggestions.map((s) => (
@@ -420,8 +445,10 @@ export function ChatView({
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-[11px] text-muted-foreground">
-                          {m.created_at ? fmtDate(m.created_at) : "刚刚"}
+                        <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                          {m.meta?.llm === "llm" && <Badge variant="default">AI 生成</Badge>}
+                          {m.meta?.llm === "template" && <Badge variant="muted">内置分析</Badge>}
+                          <span>{m.created_at ? fmtDate(m.created_at) : "刚刚"}</span>
                         </span>
                         <span className="flex items-center gap-1">
                           <button
@@ -459,7 +486,7 @@ export function ChatView({
                       <div className="max-w-none text-sm leading-relaxed text-foreground">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
                       </div>
-                      {m.meta && <SummaryBlock meta={m.meta} />}
+                      {m.meta && m.meta.route !== "general" && <SummaryBlock meta={m.meta} />}
                       {m.steps.length > 0 && (
                         <div className="mt-3">
                           <button
@@ -496,6 +523,14 @@ export function ChatView({
 
       {/* 输入区 */}
       <div className="border-t border-border bg-card/80 backdrop-blur px-3 py-3">
+        {!bootstrap?.health?.llm_configured && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <span>AI 未接入：自由问答需先在设置里配置模型；当前由内置分析回答财务问题。</span>
+            <Button variant="outline" size="sm" className="h-6 shrink-0 px-2" onClick={onOpenSettings}>
+              去接入
+            </Button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           {voiceOn && (
             <Button
@@ -518,7 +553,7 @@ export function ChatView({
               }
             }}
             rows={1}
-            placeholder="问点什么，比如：我这个月的钱花哪了？"
+            placeholder="问点什么，比如：这个月开销怎么样？"
             className="flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] max-h-32"
           />
           {busy ? (

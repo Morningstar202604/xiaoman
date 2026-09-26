@@ -24,14 +24,42 @@ _inited = False
 # --------------------------------------------------------------------------
 
 SEED_POSITIONS = [
-    {"symbol": "600519", "name": "贵州茅台", "kind": "股票", "industry": "白酒",
-     "shares": 100, "cost": 1680.00, "last": 1521.00},
-    {"symbol": "510300", "name": "沪深300ETF", "kind": "ETF", "industry": "宽基指数",
-     "shares": 8000, "cost": 3.85, "last": 4.06},
-    {"symbol": "110011", "name": "易方达中小盘混合", "kind": "基金", "industry": "主动权益",
-     "shares": 12000, "cost": 4.10, "last": 3.58},
-    {"symbol": "CASH", "name": "活期现金", "kind": "现金", "industry": "现金",
-     "shares": 1, "cost": 55000.00, "last": 55000.00},
+    {
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "kind": "股票",
+        "industry": "白酒",
+        "shares": 100,
+        "cost": 1680.00,
+        "last": 1521.00,
+    },
+    {
+        "symbol": "510300",
+        "name": "沪深300ETF",
+        "kind": "ETF",
+        "industry": "宽基指数",
+        "shares": 8000,
+        "cost": 3.85,
+        "last": 4.06,
+    },
+    {
+        "symbol": "110011",
+        "name": "易方达中小盘混合",
+        "kind": "基金",
+        "industry": "主动权益",
+        "shares": 12000,
+        "cost": 4.10,
+        "last": 3.58,
+    },
+    {
+        "symbol": "CASH",
+        "name": "活期现金",
+        "kind": "现金",
+        "industry": "现金",
+        "shares": 1,
+        "cost": 55000.00,
+        "last": 55000.00,
+    },
 ]
 
 # day_in_month: 尽量落在本月已过去的日期（今日之前），保证"本月"口径成立
@@ -51,13 +79,30 @@ SEED_TRANSACTIONS = [
 
 SEED_SUBSCRIPTIONS = [
     {"name": "云盘会员", "monthly": 14.0, "note": "可合并到家庭共享", "due_day": "1"},
-    {"name": "健身私教", "monthly": 1999.0, "note": "占订阅支出绝大部分", "due_day": "5"},
+    {
+        "name": "健身私教",
+        "monthly": 1999.0,
+        "note": "占订阅支出绝大部分",
+        "due_day": "5",
+    },
     {"name": "流媒体", "monthly": 21.5, "note": "与年付会员功能重叠", "due_day": "28"},
 ]
 
 SEED_DEBTS = [
-    {"name": "房贷", "monthly": 6800.0, "balance": 1280000.0, "rate": 0.0345, "due_day": "15"},
-    {"name": "信用卡分期", "monthly": 900.0, "balance": 7200.0, "rate": 0.13, "due_day": "10"},
+    {
+        "name": "房贷",
+        "monthly": 6800.0,
+        "balance": 1280000.0,
+        "rate": 0.0345,
+        "due_day": "15",
+    },
+    {
+        "name": "信用卡分期",
+        "monthly": 900.0,
+        "balance": 7200.0,
+        "rate": 0.13,
+        "due_day": "10",
+    },
 ]
 
 SEED_SETTINGS = {
@@ -70,19 +115,19 @@ SEED_SETTINGS = {
     # 定时晨报时间（HH:MM）
     "report_time": "08:00",
     # ---- 功能开关（设置中心可自定义）----
-    "voice_input": "off",            # 问答语音输入（浏览器支持时）
-    "show_export": "on",             # 回答导出/复制按钮
-    "expand_process": "off",         # 分析过程默认展开
-    "show_suggestions": "on",        # 问答页建议入口
-    "auto_refresh": "off",           # 仪表盘定时自动刷新
-    "auto_refresh_seconds": "300",   # 自动刷新间隔（秒）
-    "compact_numbers": "on",         # 大金额缩写（万/亿）
-    "savings_goal": "20",            # 储蓄率目标（%）
+    "voice_input": "off",  # 问答语音输入（浏览器支持时）
+    "show_export": "on",  # 回答导出/复制按钮
+    "expand_process": "off",  # 分析过程默认展开
+    "show_suggestions": "on",  # 问答页建议入口
+    "auto_refresh": "off",  # 仪表盘定时自动刷新
+    "auto_refresh_seconds": "300",  # 自动刷新间隔（秒）
+    "compact_numbers": "on",  # 大金额缩写（万/亿）
+    "savings_goal": "20",  # 储蓄率目标（%）
     # ---- AI 回答（OpenAI 兼容端点，可配任意国产/海外模型；失败自动降级模板）----
-    "ai_enabled": "off",             # 是否启用 AI 回答
-    "ai_base_url": "",               # 如 https://apihub.agnes-ai.com/v1
-    "ai_api_key": "",                # 仅存本机数据库
-    "ai_model": "",                  # 如 agnes-3.0-flash
+    "ai_enabled": "on",  # 是否启用 AI 回答（AI 优先；三要素未配或调用失败时回退内置分析）
+    "ai_base_url": "",  # 如 https://apihub.agnes-ai.com/v1
+    "ai_api_key": "",  # 仅存本机数据库
+    "ai_model": "",  # 如 agnes-3.0-flash
     "data_note": "seed",
 }
 
@@ -228,14 +273,11 @@ async def _seed_all() -> None:
     await _db.executemany(
         "INSERT INTO positions(symbol,name,kind,industry,shares,cost,last,buy_date,fee)"
         " VALUES(:symbol,:name,:kind,:industry,:shares,:cost,:last,:buy_date,:fee)",
-        [
-            {**p, "buy_date": None, "fee": 0.0}
-            for p in SEED_POSITIONS
-        ],
+        [{**p, "buy_date": None, "fee": 0.0} for p in SEED_POSITIONS],
     )
     await _db.executemany(
         "INSERT INTO transactions(date,item,category,amount) VALUES(?,?,?,?)",
-        [( _seed_date(d), item, cat, amt) for d, item, cat, amt in SEED_TRANSACTIONS],
+        [(_seed_date(d), item, cat, amt) for d, item, cat, amt in SEED_TRANSACTIONS],
     )
     await _db.executemany(
         "INSERT INTO subscriptions(name,monthly,note,due_day) VALUES(:name,:monthly,:note,:due_day)",
@@ -263,11 +305,13 @@ async def _ensure_defaults() -> None:
 async def _migrate_sessions_from_runs() -> None:
     """历史迁移：已有问答（旧库）按 thread 生成会话，标题取该线程首个问题。"""
     conn = await _conn()
-    rows = await (await conn.execute(
-        "SELECT r.thread_id, r.question FROM runs r"
-        " WHERE r.id = (SELECT MIN(id) FROM runs WHERE thread_id = r.thread_id)"
-        "   AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.thread_id = r.thread_id)"
-    )).fetchall()
+    rows = await (
+        await conn.execute(
+            "SELECT r.thread_id, r.question FROM runs r"
+            " WHERE r.id = (SELECT MIN(id) FROM runs WHERE thread_id = r.thread_id)"
+            "   AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.thread_id = r.thread_id)"
+        )
+    ).fetchall()
     if not rows:
         return
     now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -282,7 +326,14 @@ async def _migrate_sessions_from_runs() -> None:
 async def reset_to_seed() -> dict[str, Any]:
     """清空并重新种入示例数据（演示/测试用）。"""
     conn = await _conn()
-    for t in ("positions", "transactions", "subscriptions", "debts", "settings", "budgets"):
+    for t in (
+        "positions",
+        "transactions",
+        "subscriptions",
+        "debts",
+        "settings",
+        "budgets",
+    ):
         await conn.execute(f"DELETE FROM {t}")
     await _seed_all()
     await conn.commit()
@@ -292,6 +343,7 @@ async def reset_to_seed() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # 读
 # --------------------------------------------------------------------------
+
 
 async def fetch_all(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
     conn = await _conn()
@@ -325,25 +377,40 @@ async def get_settings() -> dict[str, str]:
 # 预算（budgets：month + category → amount；__total 为总预算）
 # --------------------------------------------------------------------------
 
+
 async def list_budgets(month: str) -> list[dict[str, Any]]:
-    return await fetch_all("SELECT month, category, amount FROM budgets WHERE month=? ORDER BY category", (month,))
+    return await fetch_all(
+        "SELECT month, category, amount FROM budgets WHERE month=? ORDER BY category",
+        (month,),
+    )
 
 
 async def save_budgets(month: str, items: list[dict[str, Any]]) -> dict[str, Any]:
-    """整月替换式保存：先删该月旧预算，再写入新列表。"""
+    """整月替换式保存：先删该月旧预算，再写入新列表。
+
+    同月重复分类取最后一项（主键 (month,category) 不允许重复）；
+    任一语句失败整体回滚，避免 DELETE 已执行而 INSERT 未完成的半截状态。
+    """
     conn = await _conn()
-    await conn.execute("DELETE FROM budgets WHERE month=?", (month,))
+    seen: dict[str, float] = {}
     for it in items:
         cat = str(it.get("category", "")).strip() or "__total"
         amt = float(it.get("amount", 0) or 0)
         if amt <= 0:
             continue
-        await conn.execute(
-            "INSERT INTO budgets(month,category,amount) VALUES(?,?,?)",
-            (month, cat[:40], amt),
-        )
-    await conn.commit()
-    return {"ok": True, "month": month, "count": len(items)}
+        seen[cat[:40]] = amt
+    try:
+        await conn.execute("DELETE FROM budgets WHERE month=?", (month,))
+        for cat, amt in seen.items():
+            await conn.execute(
+                "INSERT INTO budgets(month,category,amount) VALUES(?,?,?)",
+                (month, cat, amt),
+            )
+        await conn.commit()
+    except Exception:  # aqg: top-level boundary — 事务失败统一回滚后原样抛出，不吞异常
+        await conn.rollback()
+        raise
+    return {"ok": True, "month": month, "count": len(seen)}
 
 
 async def month_expense_by_category(month: str) -> dict[str, float]:
@@ -359,6 +426,7 @@ async def month_expense_by_category(month: str) -> dict[str, float]:
 # --------------------------------------------------------------------------
 # 写
 # --------------------------------------------------------------------------
+
 
 async def add_position(p: dict[str, Any]) -> dict[str, Any]:
     conn = await _conn()
@@ -383,35 +451,37 @@ async def add_position(p: dict[str, Any]) -> dict[str, Any]:
         " last=excluded.last, buy_date=excluded.buy_date, fee=excluded.fee",
         clean,
     )
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "symbol": clean["symbol"]}
 
 
 async def delete_position(symbol: str) -> dict[str, Any]:
     conn = await _conn()
     cur = await conn.execute("DELETE FROM positions WHERE symbol=?", (symbol,))
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "deleted": cur.rowcount}
 
 
-async def add_transaction(date: str, item: str, category: str, amount: float) -> dict[str, Any]:
+async def add_transaction(
+    date: str, item: str, category: str, amount: float
+) -> dict[str, Any]:
     conn = await _conn()
     cur = await conn.execute(
         "INSERT INTO transactions(date,item,category,amount) VALUES(?,?,?,?)",
         (date, item, category, float(amount)),
     )
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "id": cur.lastrowid}
 
 
 async def delete_transaction(tx_id: int) -> dict[str, Any]:
     conn = await _conn()
     cur = await conn.execute("DELETE FROM transactions WHERE id=?", (int(tx_id),))
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "deleted": cur.rowcount}
 
 
@@ -432,16 +502,16 @@ async def add_debt(d: dict[str, Any]) -> dict[str, Any]:
         " balance=excluded.balance, rate=excluded.rate, due_day=excluded.due_day",
         clean,
     )
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "name": clean["name"]}
 
 
 async def delete_debt(name: str) -> dict[str, Any]:
     conn = await _conn()
     cur = await conn.execute("DELETE FROM debts WHERE name=?", (name,))
-    await conn.commit()
     await _mark_user_data(conn)
+    await conn.commit()
     return {"ok": True, "deleted": cur.rowcount}
 
 
@@ -467,6 +537,7 @@ async def _mark_user_data(conn: aiosqlite.Connection) -> None:
 # 运行历史
 # --------------------------------------------------------------------------
 
+
 async def save_run(
     thread_id: str,
     question: str,
@@ -479,17 +550,39 @@ async def save_run(
     cur = await conn.execute(
         "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at)"
         " VALUES(?,?,?,?,?,?)",
-        (thread_id or "default", question, answer, level or "",
-         json.dumps(flags or [], ensure_ascii=False), created),
+        (
+            thread_id or "default",
+            question,
+            answer,
+            level or "",
+            json.dumps(flags or [], ensure_ascii=False),
+            created,
+        ),
     )
     await conn.commit()
     await upsert_session(thread_id or "default", question)
     return {"ok": True, "id": cur.lastrowid}
 
 
-async def delete_last_run(thread_id: str) -> dict[str, Any]:
-    """删除指定会话的最后一条问答（用于'重新生成'：先移除旧回答，再以同一问题重新作答）。"""
+async def delete_last_run(
+    thread_id: str, question: str | None = None
+) -> dict[str, Any]:
+    """删除指定会话中某问题的最近一条问答（'重新生成'用：先移除旧回答再重答）。
+
+    传 question 时精确匹配该问题的最近记录；未传或无匹配时退化为线程最后一条。
+    """
     conn = await _conn()
+    if question:
+        cur = await conn.execute(
+            "SELECT id FROM runs WHERE thread_id=? AND question=?"
+            " ORDER BY id DESC LIMIT 1",
+            (thread_id, question),
+        )
+        row = await cur.fetchone()
+        if row:
+            await conn.execute("DELETE FROM runs WHERE id=?", (row["id"],))
+            await conn.commit()
+            return {"ok": True, "deleted": 1}
     cur = await conn.execute(
         "SELECT id FROM runs WHERE thread_id=? ORDER BY id DESC LIMIT 1", (thread_id,)
     )
@@ -500,7 +593,9 @@ async def delete_last_run(thread_id: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-async def list_runs(thread_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+async def list_runs(
+    thread_id: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
     if thread_id:
         rows = await fetch_all(
             "SELECT * FROM runs WHERE thread_id=? ORDER BY id DESC LIMIT ?",
@@ -522,6 +617,7 @@ async def list_runs(thread_id: str | None = None, limit: int = 50) -> list[dict[
 # 会话管理（thread 列表：新建 / 重命名 / 删除）
 # --------------------------------------------------------------------------
 
+
 async def upsert_session(thread_id: str, title: str) -> dict[str, Any]:
     """问答落库时同步会话表：标题仍为默认'新会话'时用首个问题覆盖，否则保留自定义；刷新 updated_at。"""
     conn = await _conn()
@@ -537,7 +633,9 @@ async def upsert_session(thread_id: str, title: str) -> dict[str, Any]:
     return {"ok": True, "thread_id": thread_id}
 
 
-async def create_session(thread_id: str | None = None, title: str = "新会话") -> dict[str, Any]:
+async def create_session(
+    thread_id: str | None = None, title: str = "新会话"
+) -> dict[str, Any]:
     conn = await _conn()
     tid = thread_id or uuid_hex()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -560,11 +658,12 @@ async def list_sessions() -> list[dict[str, Any]]:
 async def rename_session(session_id: int, title: str) -> dict[str, Any]:
     conn = await _conn()
     await conn.execute(
-        "UPDATE sessions SET title=?, updated_at=?"
-        " WHERE id=?",
-        (str(title).strip()[:40] or "新会话",
-         datetime.now().astimezone().isoformat(timespec="seconds"),
-         int(session_id)),
+        "UPDATE sessions SET title=?, updated_at=? WHERE id=?",
+        (
+            str(title).strip()[:40] or "新会话",
+            datetime.now().astimezone().isoformat(timespec="seconds"),
+            int(session_id),
+        ),
     )
     await conn.commit()
     return {"ok": True}
@@ -573,9 +672,11 @@ async def rename_session(session_id: int, title: str) -> dict[str, Any]:
 async def delete_session(session_id: int) -> dict[str, Any]:
     """删除会话及其全部问答记录。"""
     conn = await _conn()
-    row = await (await conn.execute(
-        "SELECT thread_id FROM sessions WHERE id=?", (int(session_id),)
-    )).fetchone()
+    row = await (
+        await conn.execute(
+            "SELECT thread_id FROM sessions WHERE id=?", (int(session_id),)
+        )
+    ).fetchone()
     await conn.execute("DELETE FROM sessions WHERE id=?", (int(session_id),))
     if row:
         await conn.execute("DELETE FROM runs WHERE thread_id=?", (row["thread_id"],))
@@ -591,6 +692,7 @@ def uuid_hex() -> str:
 # 数据导出 / 月度趋势
 # --------------------------------------------------------------------------
 
+
 async def export_data() -> dict[str, Any]:
     """全量导出（备份）：持仓 / 流水 / 订阅 / 负债 / 预算 / 设置 / 会话 / 问答。"""
     runs = await fetch_all("SELECT * FROM runs ORDER BY id")
@@ -599,6 +701,10 @@ async def export_data() -> dict[str, Any]:
             r["flags"] = json.loads(r.pop("flags_json") or "[]")
         except Exception:
             r["flags"] = []
+    settings = await get_settings()
+    # 备份文件可能被分享/上传：AI Key 不落明文（恢复时在设置页重新填写）
+    if settings.get("ai_api_key"):
+        settings["ai_api_key"] = "********"
     return {
         "version": 2,
         "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -607,7 +713,7 @@ async def export_data() -> dict[str, Any]:
         "subscriptions": await list_subscriptions(),
         "debts": await list_debts(),
         "budgets": await fetch_all("SELECT * FROM budgets ORDER BY month, category"),
-        "settings": await get_settings(),
+        "settings": settings,
         "sessions": await list_sessions(),
         "runs": runs,
     }
