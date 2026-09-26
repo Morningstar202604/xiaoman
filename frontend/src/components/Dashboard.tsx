@@ -12,57 +12,55 @@ import { fmtMoney, fmtPct, fmtMonth } from "@/lib/format";
 import { PositionsTable } from "@/components/PositionsTable";
 import type { DashboardData, TrendMonth, BudgetUsage } from "@/lib/types";
 
-function StatCard({
+function StatCell({
   label,
   value,
   sub,
   tone,
-  icon,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: "up" | "down" | "plain";
-  icon?: React.ReactNode;
 }) {
   const color =
     tone === "up" ? "text-up" : tone === "down" ? "text-down" : "text-foreground";
   return (
-    <Card className="p-[var(--card-pad)] min-w-0">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <div className={`mt-1.5 text-xl font-bold tabular-nums truncate num-in ${color}`}>{value}</div>
-      {sub ? <div className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</div> : null}
-    </Card>
+    /* 账本抬头栏：靠竖线分隔，不用独立卡片；金额与说明分两行，永不截断 */
+    <div className="min-w-0 px-3 py-2 first:pl-0 sm:px-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-xl font-bold tabular-nums num-in leading-tight ${color}`}>{value}</div>
+      {sub ? <div className="mt-0.5 text-xs text-muted-foreground leading-snug">{sub}</div> : null}
+    </div>
   );
 }
 
 function RiskBanner({ flags }: { flags: DashboardData["flags"] }) {
+  /* 摘掉的配饰：原来这里是一只和统计卡/待扣提醒同款的白色圆角卡。
+     4 项风险自己会说话，不需要第三个同款盒子——改成一段带竖线锚的列表。 */
   if (!flags.length) {
     return (
-      <Card className="p-[var(--card-pad)] flex items-center gap-2 text-sm border-emerald-500/30 bg-emerald-500/10">
+      <div className="flex items-center gap-2 border-l-2 border-emerald-500/60 pl-3 py-1 text-sm">
         <CheckCircle2 className="w-4 h-4 text-down shrink-0" />
         <span className="text-down text-balance">未发现明显风险项，当前财务状况整体稳健。</span>
-      </Card>
+      </div>
     );
   }
   return (
-    <Card className="p-[var(--card-pad)] border-amber-500/40 bg-amber-500/10">
+    <div className="border-l-2 border-amber-500/70 pl-3 py-1">
       <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
         <AlertTriangle className="w-4 h-4 shrink-0" />
         发现 {flags.length} 项需关注
       </div>
-      <ul className="mt-2 space-y-1.5">
+      <ul className="mt-1.5 space-y-1">
         {flags.map((f, i) => (
-          <li key={i} className="flex gap-2 text-sm text-amber-800 dark:text-amber-300/90">
+          <li key={i} className="flex gap-2 text-sm text-foreground/85">
             <span className="mt-1.5 w-1 h-1 rounded-full bg-amber-500 shrink-0" />
             <span className="text-balance">{f.text}</span>
           </li>
         ))}
       </ul>
-    </Card>
+    </div>
   );
 }
 
@@ -89,36 +87,39 @@ function DueSoonStrip({ dashboard }: { dashboard: DashboardData }) {
   const totalSoon = dueSoon.reduce((s, i) => s + i.amount, 0);
 
   return (
-    <Card className="p-[var(--card-pad)]">
-      <div className="flex items-center gap-1.5 text-sm font-medium mb-2">
-        <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+    /* 待扣提醒：账本的一行行条目，卡中卡去掉，改用左侧色条区分紧急度 */
+    <div className="rounded-[var(--radius)] border border-border bg-card px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-sm font-medium mb-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
         近期待扣提醒（{monthLabel}）
       </div>
-      {dueToday.length > 0 && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 mb-2">
-          <div className="text-xs font-medium text-red-600 dark:text-red-400">今天到期 · 共 {fmtMoney(totalToday, false)}</div>
-          <div className="mt-1 flex gap-2 flex-wrap text-xs">
-            {dueToday.map((i) => (
-              <span key={i.name} className="tabular-nums">
-                {i.name} {fmtMoney(i.amount, false)}（{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
-              </span>
-            ))}
+      <div className="space-y-1.5">
+        {dueToday.length > 0 && (
+          <div className="border-l-2 border-red-500/70 pl-2.5">
+            <div className="text-xs font-medium text-red-600 dark:text-red-400">今天到期 · 共 {fmtMoney(totalToday, false)}</div>
+            <div className="mt-0.5 flex gap-x-3 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
+              {dueToday.map((i) => (
+                <span key={i.name} className="tabular-nums">
+                  {i.name} {fmtMoney(i.amount, false)}（{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      {dueSoon.length > 0 && (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
-          <div className="text-xs font-medium text-amber-600 dark:text-amber-400">近 3 天内到期 · 共 {fmtMoney(totalSoon, false)}</div>
-          <div className="mt-1 flex gap-2 flex-wrap text-xs">
-            {dueSoon.map((i) => (
-              <span key={i.name} className="tabular-nums">
-                {i.name} {fmtMoney(i.amount, false)}（{Number(i.due) < day ? "下月" : ""}{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
-              </span>
-            ))}
+        )}
+        {dueSoon.length > 0 && (
+          <div className="border-l-2 border-amber-500/70 pl-2.5">
+            <div className="text-xs font-medium text-amber-600 dark:text-amber-400">近 3 天内到期 · 共 {fmtMoney(totalSoon, false)}</div>
+            <div className="mt-0.5 flex gap-x-3 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
+              {dueSoon.map((i) => (
+                <span key={i.name} className="tabular-nums">
+                  {i.name} {fmtMoney(i.amount, false)}（{Number(i.due) < day ? "下月" : ""}{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-    </Card>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -406,16 +407,17 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
           </Button>
         </div>
       )}
-      {/* 概览 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="总资产" value={fmtMoney(t.total_market_value, false, compact)} sub={`投入成本 ${fmtMoney(t.total_cost, false, compact)}`} />
-        <StatCard
+      {/* 账本抬头：四个关键数字一行排开，竖线分隔（替代四张同款白卡） */}
+      <div className="grid grid-cols-2 gap-y-3 rounded-[var(--radius)] border border-border bg-card px-3 py-1 sm:grid-cols-4 sm:divide-x sm:divide-border/70">
+        <StatCell label="总资产" value={fmtMoney(t.total_market_value, false, compact)} sub={`投入成本 ${fmtMoney(t.total_cost, false, compact)}`} />
+        <StatCell
           label="累计盈亏"
-          value={`${fmtMoney(t.total_pnl, true, compact)} (${fmtPct(t.total_pnl_pct, true)})`}
+          value={fmtMoney(t.total_pnl, true, compact)}
+          sub={`${fmtPct(t.total_pnl_pct, true)}${t.total_pnl_pct !== 0 ? ` · ${t.total_pnl >= 0 ? "浮盈" : "浮亏"}` : ""}`}
           tone={t.total_pnl >= 0 ? "up" : "down"}
         />
-        <StatCard label={`${cf.month} 结余`} value={fmtMoney(cf.net, true, compact)} sub={`收入 ${fmtMoney(cf.income, false, compact)} · 支出 ${fmtMoney(cf.expense, false, compact)}`} />
-        <StatCard label="储蓄率" value={`${cf.savings_rate}%`} sub={cf.savings_rate < savingsGoal ? `低于 ${savingsGoal}% 建议线` : "健康水平"} />
+        <StatCell label={`${cf.month} 结余`} value={fmtMoney(cf.net, true, compact)} sub={`收入 ${fmtMoney(cf.income, false, compact)} · 支出 ${fmtMoney(cf.expense, false, compact)}`} />
+        <StatCell label="储蓄率" value={`${cf.savings_rate}%`} sub={cf.savings_rate < savingsGoal ? `低于 ${savingsGoal}% 建议线` : "健康水平"} />
       </div>
 
       {/* 本月预算（设置后显示） */}

@@ -20,13 +20,26 @@ export function SummaryBlock({ meta }: { meta: AnswerMeta }) {
   if (m.debt_monthly != null)
     chips.push({ label: "负债月供", value: `${fmtMoney(m.debt_monthly)}/月` });
 
+  // 内部等级代号不出口：L2 建议 / L1 洞察 / 已记账 → 用户能懂的话
+  const LEVEL_TEXT: Record<string, string> = {
+    "L2 建议": "需要处理",
+    "L1 洞察": "数据洞察",
+    "已记账": "已记账",
+    "L0 通用": "通用回答",
+  };
+  const levelText = LEVEL_TEXT[meta.level] ?? meta.level;
+  const isAlert = meta.level === "L2 建议";
+
   return (
-    <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+    <div className="mt-3 border-t border-border/70 pt-2.5">
       <div className="flex items-center gap-2">
-        <Badge variant={meta.level === "L2 建议" ? "warn" : "ok"}>{meta.level}</Badge>
-        <span className="text-xs text-muted-foreground">
-          {meta.llm === "llm" ? "智能问答" : "基于你的数据计算"}
-        </span>
+        <Badge variant={isAlert ? "warn" : "ok"}>{levelText}</Badge>
+        {/* 来源只在拿得到时才说：历史记录未存 llm，不能替它断言 */}
+        {meta.llm && (
+          <span className="text-xs text-muted-foreground">
+            {meta.llm === "llm" ? "模型作答" : "由确定性规则算出"}
+          </span>
+        )}
       </div>
       {chips.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
@@ -38,15 +51,8 @@ export function SummaryBlock({ meta }: { meta: AnswerMeta }) {
           ))}
         </div>
       )}
-      {meta.flags.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {meta.flags.map((f, i) => (
-            <li key={i} className="text-xs text-amber-700 dark:text-amber-400">
-              · {f.text}
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* 风险清单不在这里重复列：模板回答必然逐条列出，模型也被 system prompt 要求列出，
+          再列一遍就是同一屏说两遍。 */}
     </div>
   );
 }

@@ -2,7 +2,8 @@
 
 export const BRAND = {
   name: "随身理财",
-  tagline: "你的随身财务管家",
+  /** 副标用动作对，不用"你的XX管家"这类换行业也通顺的口号 */
+  tagline: "记一笔，问一句",
   en: "SuiShen Wealth",
 };
 

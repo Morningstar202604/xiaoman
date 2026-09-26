@@ -309,5 +309,38 @@ if (IS_SEED) {
   skip("应急金正常态对照 2 项", HAS_DATA ? "当前库为用户数据，示例必要支出数据不存在" : "当前库为空");
 }
 
+// —— 账本化视觉语言 + 来源诚实（设计打磨切片）——
+// 历史消息不伪造来源：runs 表未存 route/llm，历史无法证明来源
+const histPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+histPage.on("pageerror", (e) => errors.push(String(e)));
+await histPage.goto(BASE, { waitUntil: "networkidle" });
+await histPage.waitForTimeout(600);
+const chatBody = await histPage.locator("main").innerText();
+check("历史回答不显示「基于你的数据计算」", !chatBody.includes("基于你的数据计算"));
+check("界面无内部等级代号 L0/L1/L2", !/\bL[012]\s/.test(chatBody));
+check("记账回执显示「已记账」人话标签", chatBody.includes("已记账"));
+await histPage.close();
+
+// 统计栏金额与百分比分行，不被截断
+if (HAS_DATA) {
+  const dashPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  dashPage.on("pageerror", (e) => errors.push(String(e)));
+  await gotoDashboard(dashPage);
+  const pnlCard = await dashPage.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll("main .grid > *"));
+    const card = cards.find((c) => c.textContent?.includes("累计盈亏"));
+    if (!card) return null;
+    const valueEl = card.querySelector(".truncate");
+    return {
+      text: (card.textContent || "").replace(/\s+/g, " "),
+      truncated: !!valueEl && valueEl.scrollWidth > valueEl.clientWidth + 1,
+    };
+  });
+  check("累计盈亏卡存在", pnlCard !== null);
+  check("累计盈亏金额不被截断", pnlCard !== null && !pnlCard.truncated);
+  check("累计盈亏百分比完整可见", pnlCard !== null && /-?\d+(\.\d+)?%/.test(pnlCard.text));
+  await dashPage.close();
+}
+
 await browser.close();
 finish(errors);

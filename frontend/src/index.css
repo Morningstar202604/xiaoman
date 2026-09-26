@@ -4,27 +4,28 @@
 
 @layer base {
   :root {
-    /* 语义令牌（冷白底 + 墨蓝正文）；品牌主色由 [data-brand] 覆盖 */
-    --background: 210 45% 97%;
-    --foreground: 222 47% 13%;
+    /* 语义令牌：宣纸暖白底 + 墨色正文（账本纸感，不用冷蓝灰）；
+       品牌主色由 [data-brand] 覆盖 */
+    --background: 42 33% 96%;
+    --foreground: 36 18% 12%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 13%;
+    --card: 40 40% 99%;
+    --card-foreground: 36 18% 12%;
 
     --primary: 174 62% 29%;
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 40 40% 98%;
 
-    --secondary: 210 35% 93%;
-    --secondary-foreground: 222 40% 22%;
+    --secondary: 40 24% 92%;
+    --secondary-foreground: 36 22% 22%;
 
-    --muted: 210 32% 94%;
-    --muted-foreground: 215 16% 44%;
+    --muted: 40 22% 93%;
+    --muted-foreground: 36 10% 44%;
 
     --accent: 174 62% 93%;
     --accent-foreground: 174 70% 20%;
 
-    --border: 214 28% 89%;
-    --input: 214 28% 86%;
+    --border: 38 22% 87%;
+    --input: 38 20% 84%;
     --ring: 174 62% 34%;
 
     --radius: 0.75rem;
@@ -36,30 +37,32 @@
   }
 
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
+    /* 暗色：墨夜纸（不用纯黑），边框提亮代替发光——避免高亮点位互相抢 */
+    --background: 30 12% 8%;
+    --foreground: 40 24% 92%;
 
-    --card: 222 40% 10%;
-    --card-foreground: 210 40% 96%;
+    --card: 32 12% 11%;
+    --card-foreground: 40 24% 92%;
 
-    --primary: 174 62% 52%;
-    --primary-foreground: 180 60% 8%;
+    /* 气泡降饱和：不再用高亮青撞白字 */
+    --primary: 172 38% 42%;
+    --primary-foreground: 40 30% 96%;
 
-    --secondary: 222 30% 16%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 32 10% 16%;
+    --secondary-foreground: 40 20% 92%;
 
-    --muted: 222 30% 14%;
-    --muted-foreground: 215 18% 62%;
+    --muted: 32 10% 15%;
+    --muted-foreground: 36 10% 62%;
 
-    --accent: 174 40% 18%;
-    --accent-foreground: 174 60% 88%;
+    --accent: 174 26% 18%;
+    --accent-foreground: 174 40% 86%;
 
-    --border: 222 28% 20%;
-    --input: 222 28% 20%;
-    --ring: 174 62% 50%;
+    --border: 34 12% 24%;
+    --input: 34 12% 24%;
+    --ring: 172 38% 48%;
 
-    --brand: 174 62% 52%;
-    --brand-gold: 43 78% 56%;
+    --brand: 172 38% 46%;
+    --brand-gold: 43 68% 58%;
   }
 }
 

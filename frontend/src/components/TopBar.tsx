@@ -14,14 +14,16 @@ export function TopBar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   });
 
   return (
-    <header className="glass sticky top-0 z-10 flex items-center justify-between border-b border-border px-4 py-2">
-      <div className="flex items-center gap-2.5 min-w-0">
+    /* 移动端顶栏瘦身：品牌与日期同一行、上下留白收窄，把高度让给对话区 */
+    <header className="glass sticky top-0 z-10 flex items-center justify-between border-b border-border px-4 py-1.5 sm:py-2">
+      <div className="flex items-center gap-2 min-w-0">
         {/* 桌面端侧栏已有品牌，顶栏只留移动端品牌 + 日期 */}
-        <span className="flex items-center gap-2.5 min-w-0 md:hidden">
-          <BrandLogo size={28} />
-          <span className="text-sm font-bold leading-tight truncate">{BRAND.name}</span>
+        <span className="flex items-center gap-2 min-w-0 md:hidden">
+          <BrandLogo size={24} />
+          <span className="text-sm font-bold leading-none truncate">{BRAND.name}</span>
+          <span className="text-[11px] text-muted-foreground leading-none truncate">{today}</span>
         </span>
-        <span className="text-[11px] text-muted-foreground leading-tight truncate">{today}</span>
+        <span className="hidden text-[11px] text-muted-foreground leading-tight truncate md:inline">{today}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <Tooltip label={resolved === "dark" ? "切换浅色" : "切换深色"}>
