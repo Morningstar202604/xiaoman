@@ -30,7 +30,7 @@
     --radius: 0.75rem;
     --card-pad: 1rem;
 
-    /* 品牌主色（Logo 等视觉元素复用）；品牌切换只改 primary/accent/ring */
+    /* 品牌主色（Logo 等视觉元素复用） */
     --brand: 174 62% 29%;
     --brand-gold: 43 68% 44%;
   }
@@ -61,62 +61,6 @@
     --brand: 174 62% 52%;
     --brand-gold: 43 78% 56%;
   }
-
-  /* 四套品牌色预设（浅色） */
-  [data-brand="indigo"] {
-    --primary: 239 74% 52%;
-    --primary-foreground: 0 0% 100%;
-    --accent: 239 80% 93%;
-    --accent-foreground: 239 70% 38%;
-    --ring: 239 74% 55%;
-    --brand: 239 74% 52%;
-  }
-  [data-brand="amber"] {
-    --primary: 27 72% 36%;
-    --primary-foreground: 0 0% 100%;
-    --accent: 32 85% 93%;
-    --accent-foreground: 27 80% 28%;
-    --ring: 27 72% 42%;
-    --brand: 27 72% 36%;
-  }
-  [data-brand="graphite"] {
-    --primary: 215 22% 34%;
-    --primary-foreground: 0 0% 100%;
-    --accent: 215 25% 92%;
-    --accent-foreground: 215 25% 24%;
-    --ring: 215 22% 38%;
-    --brand: 215 22% 34%;
-  }
-  .dark[data-brand="indigo"] {
-    --primary: 239 84% 64%;
-    --primary-foreground: 240 60% 8%;
-    --accent: 239 40% 20%;
-    --accent-foreground: 239 70% 90%;
-    --ring: 239 84% 62%;
-    --brand: 239 84% 64%;
-  }
-  .dark[data-brand="amber"] {
-    --primary: 35 88% 58%;
-    --primary-foreground: 25 60% 10%;
-    --accent: 32 45% 18%;
-    --accent-foreground: 35 80% 90%;
-    --ring: 35 88% 56%;
-    --brand: 35 88% 58%;
-  }
-  .dark[data-brand="graphite"] {
-    --primary: 215 18% 62%;
-    --primary-foreground: 215 30% 8%;
-    --accent: 215 20% 20%;
-    --accent-foreground: 215 20% 90%;
-    --ring: 215 18% 58%;
-    --brand: 215 18% 62%;
-  }
-
-  /* 紧凑密度：卡片内边距 / 圆角收紧 */
-  [data-density="compact"] {
-    --radius: 0.55rem;
-    --card-pad: 0.7rem;
-  }
 }
 
 @layer base {
@@ -134,12 +78,15 @@
       radial-gradient(1100px 520px at 10% -8%, hsl(var(--primary) / 0.07), transparent 60%),
       radial-gradient(900px 480px at 100% 0%, hsl(43 68% 44% / 0.05), transparent 55%);
   }
-  /* 关闭动效（省电 / 偏好） */
-  [data-motion="off"] *,
-  [data-motion="off"] *::before,
-  [data-motion="off"] *::after {
-    transition: none !important;
-    animation: none !important;
+  /* 系统级「减弱动效」：替代已砍的手动动效开关 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 }
 

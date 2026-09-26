@@ -10,6 +10,8 @@ backend/.env
 
 # 运行时数据（含个人持仓/审计链；seed 在代码里重建）
 backend/data/
+# 运行日志
+backend/server*.log
 # 构建/缓存
 frontend/*.tsbuildinfo
 .pytest_cache/

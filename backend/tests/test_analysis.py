@@ -2,22 +2,68 @@
 
 from __future__ import annotations
 
+import pytest
 from app import analysis
 
+
+@pytest.fixture(autouse=True)
+def _fixed_month(monkeypatch):
+    """把账本「本月」口径钉在测试数据的月份上，避免测试随真实日历过期。"""
+    monkeypatch.setattr(analysis, "_month_prefix", lambda: "2026-09")
+
+
 POSITIONS = [
-    {"symbol": "600519", "name": "贵州茅台", "kind": "股票", "industry": "白酒",
-     "shares": 100, "cost": 1680.0, "last": 1521.0},
-    {"symbol": "CASH", "name": "活期现金", "kind": "现金", "industry": "现金",
-     "shares": 1, "cost": 40000.0, "last": 40000.0},
+    {
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "kind": "股票",
+        "industry": "白酒",
+        "shares": 100,
+        "cost": 1680.0,
+        "last": 1521.0,
+    },
+    {
+        "symbol": "CASH",
+        "name": "活期现金",
+        "kind": "现金",
+        "industry": "现金",
+        "shares": 1,
+        "cost": 40000.0,
+        "last": 40000.0,
+    },
 ]
 
 LIVE = {"600519": 1521.0, "CASH": 40000.0}
 
 TXN = [
-    {"id": 1, "date": "2026-09-02", "item": "工资", "category": "收入", "amount": 24800.0},
-    {"id": 2, "date": "2026-09-03", "item": "房租", "category": "居住", "amount": -5200.0},
-    {"id": 3, "date": "2026-09-05", "item": "外卖", "category": "餐饮", "amount": -1860.0},
-    {"id": 4, "date": "2026-08-20", "item": "上月餐费", "category": "餐饮", "amount": -900.0},  # 上月，应被过滤
+    {
+        "id": 1,
+        "date": "2026-09-02",
+        "item": "工资",
+        "category": "收入",
+        "amount": 24800.0,
+    },
+    {
+        "id": 2,
+        "date": "2026-09-03",
+        "item": "房租",
+        "category": "居住",
+        "amount": -5200.0,
+    },
+    {
+        "id": 3,
+        "date": "2026-09-05",
+        "item": "外卖",
+        "category": "餐饮",
+        "amount": -1860.0,
+    },
+    {
+        "id": 4,
+        "date": "2026-08-20",
+        "item": "上月餐费",
+        "category": "餐饮",
+        "amount": -900.0,
+    },  # 上月，应被过滤
 ]
 
 SETTINGS = {
@@ -67,19 +113,67 @@ def test_risk_checks_flags() -> None:
 
 def test_risk_checks_no_flags_on_healthy() -> None:
     healthy_pos = [
-        {"symbol": "A", "name": "宽基", "kind": "ETF", "industry": "指数",
-         "shares": 10, "cost": 100.0, "last": 100.0},
-        {"symbol": "CASH", "name": "现金", "kind": "现金", "industry": "现金",
-         "shares": 1, "cost": 80000.0, "last": 80000.0},
+        {
+            "symbol": "A",
+            "name": "宽基",
+            "kind": "ETF",
+            "industry": "指数",
+            "shares": 10,
+            "cost": 100.0,
+            "last": 100.0,
+        },
+        {
+            "symbol": "CASH",
+            "name": "现金",
+            "kind": "现金",
+            "industry": "现金",
+            "shares": 1,
+            "cost": 80000.0,
+            "last": 80000.0,
+        },
     ]
     healthy_tx = [
-        {"id": 1, "date": "2026-09-01", "item": "工资", "category": "收入", "amount": 24800.0},
-        {"id": 2, "date": "2026-09-02", "item": "房租", "category": "居住", "amount": -5000.0},
+        {
+            "id": 1,
+            "date": "2026-09-01",
+            "item": "工资",
+            "category": "收入",
+            "amount": 24800.0,
+        },
+        {
+            "id": 2,
+            "date": "2026-09-02",
+            "item": "房租",
+            "category": "居住",
+            "amount": -5000.0,
+        },
     ]
     s = {**SETTINGS, "emergency_target_months": "3"}
     m = analysis.market_view(healthy_pos, {p["symbol"]: p["last"] for p in healthy_pos})
-    led = analysis.ledger_view(healthy_tx, [], [], s, healthy_pos, {p["symbol"]: p["last"] for p in healthy_pos})
+    led = analysis.ledger_view(
+        healthy_tx,
+        [],
+        [],
+        s,
+        healthy_pos,
+        {p["symbol"]: p["last"] for p in healthy_pos},
+    )
     assert analysis.risk_checks(m, led) == []
+
+
+def test_emergency_no_data_no_false_alarm() -> None:
+    """R1 回归：本月无必要支出数据时，应急金不得误报"仅覆盖 0 个月"。"""
+    led = analysis.ledger_view([TXN[0]], [], [], SETTINGS, POSITIONS, LIVE)
+    em = led["emergency"]
+    assert em["essential_monthly"] == 0.0
+    assert em["has_data"] is False
+
+    m = analysis.market_view(POSITIONS, LIVE)
+    flags = analysis.risk_checks(m, led)
+    assert "EMERGENCY_FUND" not in {f["code"] for f in flags}
+
+    text = analysis.template_answer(m, led, flags)
+    assert "可覆盖 0.0 个月" not in text
 
 
 def test_template_answer_mentions_numbers() -> None:

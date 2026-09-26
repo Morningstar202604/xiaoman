@@ -12,45 +12,142 @@ from datetime import date, datetime, timedelta
 
 # 分类关键词（按序匹配，越靠前越具体；收入词在收入分支单独判断）
 CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("交通", ["打车", "滴滴", "出租", "地铁", "公交", "高铁", "火车", "机票", "加油", "停车", "共享单车", "骑行"]),
-    ("餐饮", ["早餐", "午餐", "晚餐", "夜宵", "外卖", "火锅", "烧烤", "咖啡", "奶茶", "吃饭", "下馆子", "零食", "水果"]),
+    (
+        "交通",
+        [
+            "打车",
+            "滴滴",
+            "出租",
+            "地铁",
+            "公交",
+            "高铁",
+            "火车",
+            "机票",
+            "加油",
+            "停车",
+            "共享单车",
+            "骑行",
+        ],
+    ),
+    (
+        "餐饮",
+        [
+            "早餐",
+            "午餐",
+            "晚餐",
+            "夜宵",
+            "外卖",
+            "火锅",
+            "烧烤",
+            "咖啡",
+            "奶茶",
+            "吃饭",
+            "下馆子",
+            "零食",
+            "水果",
+        ],
+    ),
     ("居住", ["房租", "房贷", "水电", "物业", "燃气", "宽带", "话费", "供暖"]),
-    ("购物", ["淘宝", "京东", "拼多多", "衣服", "超市", "商场", "日用品", "家电", "买了", "购物"]),
+    (
+        "购物",
+        [
+            "淘宝",
+            "京东",
+            "拼多多",
+            "衣服",
+            "超市",
+            "商场",
+            "日用品",
+            "家电",
+            "买了",
+            "购物",
+        ],
+    ),
     ("订阅", ["会员", "订阅", "视频", "音乐", "网盘", "云盘", "自动续费"]),
     ("投资", ["基金", "股票", "加仓", "买入", "定投", "黄金"]),
     ("还款", ["还款", "信用卡", "花呗", "白条", "还贷"]),
     ("收入", ["工资", "奖金", "报销", "退款", "到账", "分红", "利息", "兼职", "收入"]),
 ]
 
-INCOME_KEYWORDS = ["工资", "奖金", "报销", "退款", "到账", "分红", "利息", "收入", "兼职", "赚了", "发了"]
+INCOME_KEYWORDS = [
+    "工资",
+    "奖金",
+    "报销",
+    "退款",
+    "到账",
+    "分红",
+    "利息",
+    "收入",
+    "兼职",
+    "赚了",
+]
 
 # 从句子中剔除的语气词 / 动词，用于提炼「名称」
-NOISE_WORDS = ["今天", "昨天", "前天", "大前天", "花了", "消费", "支出", "用了", "用了", "付了", "扫码", "支付", "块钱", "块", "元", "钱", "大概", "约"]
+NOISE_WORDS = [
+    "今天",
+    "昨天",
+    "前天",
+    "大前天",
+    "花了",
+    "消费",
+    "支出",
+    "用了",
+    "用了",
+    "付了",
+    "扫码",
+    "支付",
+    "块钱",
+    "块",
+    "元",
+    "钱",
+    "大概",
+    "约",
+]
+
+# 金额识别：带货币单位的优先；无单位时先剔掉易混淆的数字片段再取第一个
+_AMOUNT_PREFIX = re.compile(r"(?:¥|￥)\s*(\d[\d,]*(?:\.\d+)?)\s*(万)?")
+_AMOUNT_SUFFIX = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万)?\s*(?:元|块钱|块|人民币)")
+_AMOUNT_PLAIN = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万)?")
+# 月份、字母型号（iPhone15）、数量单位（10股）——都不是金额
+_NON_AMOUNT_DIGITS = re.compile(
+    r"\d{1,2}\s*月|[A-Za-z]+\d+|\d+\s*(?:股|份|手|个|件|人|天|次|张|瓶|斤|米|码|楼|号)"
+)
 
 
-def _parse_amount(text: str) -> float | None:
-    """提取第一个金额：支持千分位、小数、带「万」。返回元，None 表示没有金额。"""
-    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(万)?", text)
-    if not m:
-        return None
+def _to_amount(m: re.Match) -> float:
     num = float(m.group(1).replace(",", ""))
     if m.group(2) == "万":
         num *= 10000
     return round(num, 2)
 
 
+def _parse_amount(text: str) -> float | None:
+    """提取金额：支持千分位、小数、带「万」。返回元，None 表示没有金额。"""
+    for pattern in (_AMOUNT_PREFIX, _AMOUNT_SUFFIX):
+        m = pattern.search(text)
+        if m:
+            return _to_amount(m)
+    m = _AMOUNT_PLAIN.search(_NON_AMOUNT_DIGITS.sub(" ", text))
+    return _to_amount(m) if m else None
+
+
 def _parse_date(text: str, today: date) -> tuple[str | None, str]:
     """返回 (YYYY-MM-DD, 去掉日期后的剩余文本)。"""
-    # 相对日期
-    for offset, word in ((0, "今天"), (1, "昨天"), (2, "前天"), (3, "大前天")):
+    # 相对日期（长词优先，否则「大前天」会被「前天」抢走）
+    for offset, word in ((3, "大前天"), (2, "前天"), (1, "昨天"), (0, "今天")):
         if word in text:
             d = today - timedelta(days=offset)
             return d.isoformat(), text.replace(word, " ", 1)
     # 显式：YYYY-MM-DD / YYYY年M月D日
     m = re.search(r"(\d{4})[-年/](\d{1,2})[-月/](\d{1,2})日?", text)
     if m:
-        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        return d.isoformat(), re.sub(r"\d{4}[-年/]\d{1,2}[-月/]\d{1,2}日?", " ", text, count=1)
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None, text  # 日历非法（如 13月40日）：不当日期，留给金额解析
+        return d.isoformat(), re.sub(
+            r"\d{4}[-年/]\d{1,2}[-月/]\d{1,2}日?", " ", text, count=1
+        )
     # 今年内：M月D日 / M月D号
     m = re.search(r"(\d{1,2})月(\d{1,2})[日号]", text)
     if m:
@@ -132,7 +229,12 @@ async def parse_with_ai(text: str) -> dict | None:
         if amount <= 0:
             return None
         cat = str(data.get("category", "其他")).strip() or "其他"
-        cat = cat if cat in {"餐饮", "居住", "交通", "购物", "订阅", "投资", "还款", "收入", "其他"} else "其他"
+        cat = (
+            cat
+            if cat
+            in {"餐饮", "居住", "交通", "购物", "订阅", "投资", "还款", "收入", "其他"}
+            else "其他"
+        )
         item = str(data.get("item", "")).strip()[:40] or cat
         # 日期校验：允许今天/昨天/前天等相对词（AI 已给绝对日期则校验格式）
         d = str(data.get("date", "")).strip()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from datetime import date
 
 from . import nlparse
 
@@ -16,9 +17,29 @@ from . import nlparse
 DATE_KEYS = ["交易时间", "交易日期", "记账日期", "日期", "时间"]
 AMOUNT_KEYS = ["金额", "交易金额", "发生额"]
 TYPE_KEYS = ["收/支", "收支", "交易类型", "资金流向", "收入/支出", "类型", "收/付"]
-DESC_KEYS = ["商品说明", "商品", "交易对方", "对方户名", "对方", "备注", "摘要", "用途", "说明", "商户"]
+DESC_KEYS = [
+    "商品说明",
+    "商品",
+    "交易对方",
+    "对方户名",
+    "对方",
+    "备注",
+    "摘要",
+    "用途",
+    "说明",
+    "商户",
+]
 INCOME_TYPE = {"收入", "收款", "收", "转入", "入账", "credit"}
 EXPENSE_TYPE = {"支出", "付款", "支", "转出", "消费", "debit"}
+
+
+def _is_real_date(d: str) -> bool:
+    """YYYY-MM-DD 且日历真实（挡掉 2026-13-45 这类永远进不了月度聚合的值）。"""
+    try:
+        date.fromisoformat(d)
+    except ValueError:
+        return False
+    return True
 
 
 def parse_csv(content: str) -> dict:
@@ -87,7 +108,9 @@ def _parse_date(v: str) -> str | None:
     return None
 
 
-def build_rows(mapping: dict, columns: list[str], rows: list[list[str]], year_fill: str = "") -> tuple[list[dict], list[str]]:
+def build_rows(
+    mapping: dict, columns: list[str], rows: list[list[str]], year_fill: str = ""
+) -> tuple[list[dict], list[str]]:
     """按映射把原始行转成入账候选 + 跳过原因。
 
     每行 → {date, item, category, amount}；amount 正为收入、负为支出。
@@ -95,42 +118,58 @@ def build_rows(mapping: dict, columns: list[str], rows: list[list[str]], year_fi
     """
     out: list[dict] = []
     skips: list[str] = []
-    di, ai, ti, si = mapping["date"], mapping["amount"], mapping["type"], mapping["desc"]
+    di, ai, ti, si = (
+        mapping["date"],
+        mapping["amount"],
+        mapping["type"],
+        mapping["desc"],
+    )
     for row in rows:
-        amount_v = row[ai] if 0 <= ai < len(row) else ""
-        amt = _parse_amount(amount_v)
+        desc = row[si] if 0 <= si < len(row) else ""
+        label = desc or "—"
+        amt = _parse_amount(row[ai] if 0 <= ai < len(row) else "")
         if amt is None:
-            skips.append(f"缺金额：{row[si] if 0 <= si < len(row) else '—'}")
+            skips.append(f"缺金额：{label}")
             continue
         if amt == 0:
-            skips.append(f"金额为 0：{row[si] if 0 <= si < len(row) else '—'}")
+            skips.append(f"金额为 0：{label}")
             continue
 
-        # 收支方向：显式类型列优先，其次金额本身的正负
-        type_v = row[ti] if 0 <= ti < len(row) else ""
+        # 收支方向：显式类型列优先，其次金额本身的正负。类型值认不出来就跳过——
+        # 猜错方向会把转账/不计收支记成收入，污染储蓄率与趋势，宁可少导一行。
+        type_raw = row[ti] if 0 <= ti < len(row) else ""
+        type_v = type_raw.strip().lower()
         if type_v:
             if type_v in INCOME_TYPE:
                 amt = abs(amt)
             elif type_v in EXPENSE_TYPE:
                 amt = -abs(amt)
-            # 其它值（如"不计收支"）按金额符号处理
+            else:
+                skips.append(f"收支类型未识别（{type_raw.strip()}）：{label}")
+                continue
 
-        desc = row[si] if 0 <= si < len(row) else ""
-        date_v = row[di] if 0 <= di < len(row) else ""
-        d = _parse_date(date_v)
+        d = _parse_date(row[di] if 0 <= di < len(row) else "")
         if d is None:
             if not year_fill:
-                skips.append(f"缺日期：{desc or '—'}")
+                skips.append(f"缺日期：{label}")
                 continue
             d = f"{year_fill}-01"
         elif not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            if not year_fill:
+                skips.append(f"日期缺年份：{label}")
+                continue
             # 只有月日的格式，补今年
             d = f"{year_fill[:4]}-{d}"
+        if not _is_real_date(d):
+            skips.append(f"日期非法（{d}）：{label}")
+            continue
 
-        out.append({
-            "date": d,
-            "item": (desc[:40] or "其他"),
-            "category": classify(desc),
-            "amount": round(amt, 2),
-        })
+        out.append(
+            {
+                "date": d,
+                "item": (desc[:40] or "其他"),
+                "category": classify(desc),
+                "amount": round(amt, 2),
+            }
+        )
     return out, skips

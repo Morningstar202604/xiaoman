@@ -1,56 +1,45 @@
-import { Moon, RefreshCw, Settings, Sun } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Moon, Settings, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { BrandLogo, BRAND } from "@/lib/brand";
-import { store } from "@/lib/store";
 import { useTheme } from "@/lib/theme";
 
-/** 顶栏：品牌 Logo + 标语 + 数据来源徽章 + 主题切换 + 刷新 + 设置。 */
+/** 顶栏：品牌 + 日期 + 明暗切换 + 设置。数据来源等工程细节移到设置页，不占首屏。 */
 export function TopBar({ onOpenSettings }: { onOpenSettings?: () => void }) {
-  const { dashboard, bootstrap } = store.useApp();
   const { resolved, setTheme } = useTheme();
-  const quotesLabel = dashboard?.source.quotes ?? bootstrap?.source.quotes;
+  const today = new Date().toLocaleDateString("zh-CN", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
 
   return (
     <header className="glass sticky top-0 z-10 flex items-center justify-between border-b border-border px-4 py-2">
       <div className="flex items-center gap-2.5 min-w-0">
-        <BrandLogo size={28} />
-        <div className="min-w-0">
-          <div className="text-sm font-bold leading-tight truncate">{BRAND.name}</div>
-          {quotesLabel ? (
-            <div className="text-[11px] text-muted-foreground leading-tight truncate">{quotesLabel}</div>
-          ) : null}
-        </div>
+        {/* 桌面端侧栏已有品牌，顶栏只留移动端品牌 + 日期 */}
+        <span className="flex items-center gap-2.5 min-w-0 md:hidden">
+          <BrandLogo size={28} />
+          <span className="text-sm font-bold leading-tight truncate">{BRAND.name}</span>
+        </span>
+        <span className="text-[11px] text-muted-foreground leading-tight truncate">{today}</span>
       </div>
       <div className="flex items-center gap-1.5">
-        {dashboard?.source.seeded === false && (
-          <Badge variant="secondary" className="hidden sm:inline-flex">
-            真实数据
-          </Badge>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="切换明暗"
-          onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
-        >
-          {resolved === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="刷新数据"
-          onClick={() => {
-            void store.refreshDashboard();
-            void store.refreshBootstrap();
-          }}
-        >
-          <RefreshCw className="w-4 h-4" />
-        </Button>
-        {onOpenSettings && (
-          <Button variant="ghost" size="icon" aria-label="设置" onClick={onOpenSettings}>
-            <Settings className="w-4 h-4" />
+        <Tooltip label={resolved === "dark" ? "切换浅色" : "切换深色"}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="切换明暗"
+            onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
+          >
+            {resolved === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </Button>
+        </Tooltip>
+        {onOpenSettings && (
+          <Tooltip label="设置">
+            <Button variant="ghost" size="icon" aria-label="设置" onClick={onOpenSettings}>
+              <Settings className="w-4 h-4" />
+            </Button>
+          </Tooltip>
         )}
       </div>
     </header>

@@ -41,6 +41,7 @@ export interface EmergencyInfo {
   essential_categories: string[];
   months_covered: number;
   target_months: number;
+  has_data: boolean;
   ok: boolean;
 }
 
@@ -148,7 +149,8 @@ export interface AnswerMeta {
   route_reason: string;
   metrics: Record<string, number>;
   flags: RiskFlag[];
-  llm: "llm" | "template";
+  /** 回答生成来源；历史记录未存来源时为 undefined（不渲染徽标） */
+  llm?: "llm" | "template";
 }
 
 export type AskEvent =

@@ -1,51 +1,114 @@
-/** ECharts 按需注册 + 轻量挂载 hook + 主题感知色板（深度副作用导入，避免整包打入）。 */
+/** ECharts 按需注册 + 轻量挂载 hook + 主题感知色板（运行时懒加载，echarts 不进首屏包）。 */
 
-import { useEffect, type RefObject } from "react";
-import * as echarts from "echarts/core";
-import { CanvasRenderer } from "echarts/renderers";
-// 以下深度模块为副作用注册（各自 install 到 core），不要改回 barrel 导入
-import "echarts/lib/chart/bar";
-import "echarts/lib/chart/line";
-import "echarts/lib/chart/pie";
-import "echarts/lib/component/grid";
-import "echarts/lib/component/legend";
-import "echarts/lib/component/tooltip";
+import { useEffect, useRef, type RefObject } from "react";
+import type { EChartsCoreOption, EChartsType } from "echarts/core";
 import { useTheme } from "./theme";
 
-echarts.use([CanvasRenderer]);
+type EChartsModule = typeof import("echarts/core");
 
-/** 把 option 挂到容器上，容器尺寸变化自动 resize。 */
+let echartsModule: EChartsModule | null = null;
+let loading: Promise<EChartsModule> | null = null;
+
+/** 首次用到图表时才加载 echarts 运行时与所需图表/组件（副作用注册到同一 core），结果缓存复用。 */
+function loadEcharts(): Promise<EChartsModule> {
+  if (echartsModule) return Promise.resolve(echartsModule);
+  if (!loading) {
+    loading = (async () => {
+      const core = await import("echarts/core");
+      const [{ CanvasRenderer }] = await Promise.all([
+        import("echarts/renderers"),
+        import("echarts/lib/chart/bar"),
+        import("echarts/lib/chart/line"),
+        import("echarts/lib/chart/pie"),
+        import("echarts/lib/component/grid"),
+        import("echarts/lib/component/legend"),
+        import("echarts/lib/component/tooltip"),
+      ]);
+      core.use([CanvasRenderer]);
+      echartsModule = core;
+      return core;
+    })().catch((err) => {
+      loading = null; // 失败后允许下次重试
+      throw err;
+    });
+  }
+  return loading;
+}
+
+/** 把 option 挂到容器上，容器尺寸变化自动 resize；echarts 运行时按需异步加载。
+ *
+ * 实例只初始化一次：option 变化走 setOption，避免每次数据刷新都 dispose+init
+ * （重建实例会丢动画、闪烁，且三个图在仪表盘切换时反复重绘）。
+ */
 export function useEChart(
   ref: RefObject<HTMLDivElement | null>,
-  option: echarts.EChartsCoreOption | null,
+  option: EChartsCoreOption | null,
   deps: unknown[],
 ): void {
+  const optionRef = useRef<EChartsCoreOption | null>(null);
+  optionRef.current = option;
+
+  // 实例生命周期只跟容器走：挂载时 init 一次（不依赖 option 是否已就绪），
+  // 卸载时 dispose。option 后到就由下面的更新 effect 推 setOption。
   useEffect(() => {
-    if (!ref.current || !option) return;
-    const chart = echarts.init(ref.current);
-    chart.setOption(option);
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(ref.current);
+    if (!ref.current) return;
+    let disposed = false;
+    let chart: EChartsType | null = null;
+    let ro: ResizeObserver | null = null;
+    loadEcharts()
+      .then((core) => {
+        const el = ref.current;
+        if (disposed || !el) return;
+        // 容器上已有实例就复用（避免 StrictMode 双挂载重复 init）
+        chart = core.getInstanceByDom(el) ?? core.init(el);
+        // echarts 异步加载期间 option 可能已经就绪，补一次避免首帧空白
+        const latest = optionRef.current;
+        if (latest) chart.setOption(latest, { notMerge: true });
+        ro = new ResizeObserver(() => chart?.resize());
+        ro.observe(el);
+      })
+      .catch((err: unknown) => {
+        console.error("ECharts 加载失败", err);
+      });
     return () => {
-      ro.disconnect();
-      chart.dispose();
+      disposed = true;
+      ro?.disconnect();
+      chart?.dispose();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 数据/配置变化：只 setOption，不重建实例
+  useEffect(() => {
+    if (!option || !ref.current) return;
+    loadEcharts()
+      .then((core) => {
+        const el = ref.current;
+        if (!el) return;
+        const inst = core.getInstanceByDom(el);
+        inst?.setOption(option, { notMerge: true });
+      })
+      .catch(() => {
+        /* 加载失败由挂载 effect 上报 */
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
 
-/** 主题感知色板：浅色用深系、深色用亮系（与界面明暗一致）。 */
+/** 主题感知色板：浅色用深系、深色用亮系（与界面明暗一致）。
+ * 模块级常量，引用身份稳定——放在 usePalette 里每次渲染新数组会让下游 memo 全部失效。 */
+const PALETTE_DARK = [
+  "#3ddad7", "#7ea6ff", "#52d68a", "#f2b549", "#b99aff",
+  "#ff7aa2", "#5ad2f2", "#a8d84d", "#c58cff", "#8ea6c2",
+];
+const PALETTE_LIGHT = [
+  "#0d7a66", "#2f6fed", "#16a34a", "#d97706", "#7c5cd6",
+  "#e11d48", "#0891b2", "#65a30d", "#9333ea", "#64748b",
+];
+
 export function usePalette(): string[] {
   const { resolved } = useTheme();
-  return resolved === "dark"
-    ? [
-        "#3ddad7", "#7ea6ff", "#52d68a", "#f2b549", "#b99aff",
-        "#ff7aa2", "#5ad2f2", "#a8d84d", "#c58cff", "#8ea6c2",
-      ]
-    : [
-        "#0d7a66", "#2f6fed", "#16a34a", "#d97706", "#7c5cd6",
-        "#e11d48", "#0891b2", "#65a30d", "#9333ea", "#64748b",
-      ];
+  return resolved === "dark" ? PALETTE_DARK : PALETTE_LIGHT;
 }
 
 /** 通用文本色（随明暗） */
