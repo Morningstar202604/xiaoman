@@ -226,6 +226,42 @@ async def test_report_still_generates_with_data(client) -> None:
     assert (await client.get("/api/reports")).json()["reports"]
 
 
+# —— 对话内一句话记账（不依赖模型，命中即入账）——
+async def test_chat_nl_records_transaction(client) -> None:
+    before = len((await client.get("/api/dashboard")).json()["transactions"])
+    final = await _ask(client, "午饭 35 元")
+    assert final["route"] == "nl_add"
+    assert "已记一笔" in final["answer"]
+    assert "35" in final["answer"]
+    d = (await client.get("/api/dashboard")).json()
+    assert len(d["transactions"]) == before + 1
+    tx = d["transactions"][0]
+    assert tx["category"] == "餐饮"
+    assert tx["amount"] == -35.0
+
+
+async def test_chat_nl_records_income(client) -> None:
+    final = await _ask(client, "工资 8000 已到账")
+    assert final["route"] == "nl_add"
+    d = (await client.get("/api/dashboard")).json()
+    tx = d["transactions"][0]
+    assert tx["category"] == "收入"
+    assert tx["amount"] == 8000.0
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["我这个月花了3000怎么办", "昨天打车32元花了吗", "这个月餐饮预算应该定多少"],
+)
+async def test_chat_does_not_hijack_questions(client, question) -> None:
+    """疑问句不得被记账劫持。"""
+    before = len((await client.get("/api/dashboard")).json()["transactions"])
+    final = await _ask(client, question)
+    assert final["route"] != "nl_add"
+    d = (await client.get("/api/dashboard")).json()
+    assert len(d["transactions"]) == before
+
+
 async def test_ask_sse_flow(client) -> None:
     async with client.stream(
         "POST", "/api/ask", json={"question": "我这个月的钱都花到哪了？"}

@@ -48,7 +48,7 @@ export function makeChecks() {
       console.log(checks.join("\n"));
       if (skips.length) {
         console.log(skips.join("\n"));
-        console.log(`skipped: ${skips.length} 项（依赖示例数据，当前库为空）`);
+        console.log(`skipped: ${skips.length} 项（依赖当前库不满足的前置数据，见上方 # 说明）`);
       }
       console.log("page errors:", pageErrors.length ? pageErrors.join("\n") : "none");
       const failed = checks.filter((c) => c.startsWith("FAIL"));

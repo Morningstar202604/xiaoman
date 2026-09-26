@@ -16,7 +16,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from . import analysis, db, llm
+from . import analysis, db, llm, nlparse
 from .quotes import live_quotes
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
@@ -35,6 +35,55 @@ GENERAL_FALLBACK = (
     "不过记账和确定性分析我离线就能做：去「记账」一句话记一笔，"
     "或问我持仓、收支、负债与风险。"
 )
+
+# 疑问/讨论式句式黑名单：命中则不当记账指令，避免把「花了3000怎么办」写进账本
+QUESTION_MARKS = ("吗", "呢", "怎", "哪", "多少", "是不是", "?", "？")
+NL_MAX_LEN = 24
+
+
+def _looks_like_record(question: str) -> bool:
+    """短句 + 无疑问词 + 能解析出金额 → 视为一句话记账指令。"""
+    q = question.strip()
+    if not q or len(q) > NL_MAX_LEN:
+        return False
+    return not any(m in q for m in QUESTION_MARKS)
+
+
+async def _try_nl_add(question: str, reason: str, emit: Emit) -> dict[str, Any] | None:
+    """对话内一句话记账：规则解析（无需模型）→ 入账 → 回执（含撤销路径）。"""
+    if not _looks_like_record(question):
+        return None
+    parsed = nlparse.parse(question)
+    if parsed is None:
+        return None
+
+    await emit({
+        "type": "step", "id": "nl", "label": "识别记账",
+        "detail": f"{parsed['item']} {abs(parsed['amount']):.2f} 元（{parsed['category']}）", "phase": "start",
+    })
+    ins = await db.add_transaction(
+        parsed["date"], parsed["item"], parsed["category"], parsed["amount"]
+    )
+    direction = "收入" if parsed["amount"] > 0 else "支出"
+    answer = (
+        f"已记一笔：{parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} 元"
+        f"（{parsed['category']} · {direction}）。\n\n"
+        "记错了可以在「记账」页删掉这一条。"
+    )
+    await emit({
+        "type": "step", "id": "nl", "label": "已入账",
+        "detail": f"{parsed['category']} {abs(parsed['amount']):,.2f} 元", "phase": "done",
+    })
+    return {
+        "answer": answer,
+        "level": "已记账",
+        "route": "nl_add",
+        "route_reason": f"识别为一句话记账：{reason}",
+        "metrics": {},
+        "flags": [],
+        "llm": "template",
+        "tx_id": ins["id"],
+    }
 
 
 def route_question(question: str) -> tuple[str, str]:
@@ -87,6 +136,12 @@ async def run_question(question: str, emit: Emit) -> dict[str, Any]:
     await emit({"type": "start", "question": question})
 
     route, reason = route_question(question)
+
+    # 一句话记账优先：短句且能解析出金额时直接入账（无需模型），不进入问答链路
+    recorded = await _try_nl_add(question, reason, emit)
+    if recorded is not None:
+        return recorded
+
     if route == "general":
         return await _run_general(question, reason, emit)
 

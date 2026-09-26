@@ -486,7 +486,9 @@ export function ChatView({
                       <div className="max-w-none text-sm leading-relaxed text-foreground">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
                       </div>
-                      {m.meta && m.meta.route !== "general" && <SummaryBlock meta={m.meta} />}
+                      {m.meta && m.meta.route !== "general" && m.meta.route !== "nl_add" && (
+                        <SummaryBlock meta={m.meta} />
+                      )}
                       {m.steps.length > 0 && (
                         <div className="mt-3">
                           <button

@@ -13,11 +13,15 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
-// —— 环境前置：部分断言依赖示例数据（持仓/流水），空库时显式跳过而非误报失败 ——
+// —— 环境前置：断言分两档依赖 —— HAS_DATA 需要有数据，IS_SEED 需要仍是示例数据
+// （待扣跨月/应急金对照依赖示例库里那几笔特定流水，用户一旦自己记过账就改用别的门）——
 const boot = await (await fetch(BASE + "/api/dashboard")).json();
 const HAS_DATA = (boot.positions?.length ?? 0) > 0 || (boot.transactions?.length ?? 0) > 0;
+const IS_SEED = boot.source?.seeded === true;
 if (!HAS_DATA) {
-  console.log("# 当前库为空（无持仓无流水）：依赖示例数据的断言将标记 SKIP");
+  console.log("# 当前库为空（无持仓无流水）：依赖数据的断言将标记 SKIP");
+} else if (!IS_SEED) {
+  console.log("# 当前库为用户数据（非示例）：依赖示例数据的断言将标记 SKIP");
 }
 
 // —— index.html 层面：重依赖不进预加载清单 ——
@@ -235,7 +239,7 @@ await mobile.waitForTimeout(400);
 check("移动端一句话记账可见", (await mobile.locator("input[placeholder*='昨天打车']").count()) === 1);
 await mobile.close();
 
-// —— 待扣跨月（page.clock 固定时钟；依赖示例流水）——
+// —— 待扣跨月（page.clock 固定时钟；依赖示例库那几笔待扣流水）——
 async function stripAt(iso) {
   const p = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   p.on("pageerror", (e) => errors.push(String(e)));
@@ -245,7 +249,7 @@ async function stripAt(iso) {
   await p.close();
   return text;
 }
-if (HAS_DATA) {
+if (IS_SEED) {
   const at26 = await stripAt("2026-09-26T12:00:00");
   check("9-26 显示近期待扣提醒", at26.includes("近期待扣提醒"));
   check("9-26 含 28 号扣款（本月内）", at26.includes("28 号扣款"));
@@ -255,10 +259,10 @@ if (HAS_DATA) {
   check("9-29 含「下月 1 号扣款」（跨月）", /下月\s*1\s*号扣款/.test(at29));
   check("9-29 不含 28 号（已过号不重复）", !at29.includes("28 号扣款"));
 } else {
-  skip("待扣跨月 6 项", "当前库为空，无待扣提醒可验证");
+  skip("待扣跨月 6 项", HAS_DATA ? "当前库为用户数据，示例待扣流水不存在" : "当前库为空，无待扣提醒可验证");
 }
 
-// —— 应急金无数据态（mock API，非破坏；依赖示例数据才能展开明细）——
+// —— 应急金无数据态（mock API，非破坏；明细区需要有数据才展开）——
 if (HAS_DATA) {
   const emPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   emPage.on("pageerror", (e) => errors.push(String(e)));
@@ -280,8 +284,12 @@ if (HAS_DATA) {
   check("显示「暂无法估算」话术", emTxt.includes("暂无法估算"));
   check("无应急金不足风险文案", !/应急金[^未]*不足|应急金缺口/.test(emTxt));
   await emPage.close();
+} else {
+  skip("应急金无数据态 4 项", "当前库为空，仪表盘渲染引导态无应急金卡");
+}
 
-  // —— 对照组：正常态 ——
+// —— 对照组：正常态（依赖示例库的现金与必要支出数据）——
+if (IS_SEED) {
   const okPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   okPage.on("pageerror", (e) => errors.push(String(e)));
   await gotoDashboard(okPage);
@@ -292,7 +300,7 @@ if (HAS_DATA) {
   check("正常态有达标或不足徽标", okTxt.includes("达标") || okTxt.includes("不足"));
   await okPage.close();
 } else {
-  skip("应急金态与对照 6 项", "当前库为空，仪表盘渲染引导态无应急金卡");
+  skip("应急金正常态对照 2 项", HAS_DATA ? "当前库为用户数据，示例必要支出数据不存在" : "当前库为空");
 }
 
 await browser.close();
