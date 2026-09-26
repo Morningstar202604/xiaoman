@@ -34,13 +34,22 @@ export async function launchBrowser(pw) {
 
 export function makeChecks() {
   const checks = [];
+  const skips = [];
   return {
     checks,
+    /** 环境相关而无法执行的断言：显式记录并在结尾汇总，不静默通过 */
+    skip(name, reason) {
+      skips.push(`SKIP ${name} — ${reason}`);
+    },
     check(name, cond) {
       checks.push(`${cond ? "PASS" : "FAIL"} ${name}`);
     },
     finish(pageErrors = []) {
       console.log(checks.join("\n"));
+      if (skips.length) {
+        console.log(skips.join("\n"));
+        console.log(`skipped: ${skips.length} 项（依赖示例数据，当前库为空）`);
+      }
       console.log("page errors:", pageErrors.length ? pageErrors.join("\n") : "none");
       const failed = checks.filter((c) => c.startsWith("FAIL"));
       process.exit(failed.length || pageErrors.length ? 1 : 0);
