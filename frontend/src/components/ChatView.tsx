@@ -128,15 +128,16 @@ export function ChatView({
               text: r.answer,
               q: r.question,
               steps: [],
-              // 历史 runs 存了 level/flags（真实数据），但没存 route/llm 来源：
-              // 因此只带 level 与 flags，来源留空 → 前端不会显示无法证明的「由规则算出」
+              // 来源随回答落库（route/llm/route_reason）：有就显示真实来源，
+              // 旧记录或空值一律留空 —— 拿不到就不说，不猜。
               meta: {
                 answer: r.answer,
                 level: r.level,
-                route: "",
-                route_reason: "",
+                route: r.route ?? "",
+                route_reason: r.route_reason ?? "",
                 metrics: {},
                 flags: r.flags,
+                llm: (r.llm || undefined) as "llm" | "template" | undefined,
               },
               created_at: r.created_at,
             },

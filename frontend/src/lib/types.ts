@@ -86,6 +86,10 @@ export interface RunRecord {
   level: string;
   flags: RiskFlag[];
   created_at: string;
+  /** 问答来源（2026-09 起随回答落库；更早的历史记录为空字符串 = 未知，不猜） */
+  route?: string;
+  llm?: string;
+  route_reason?: string;
 }
 
 export interface SessionItem {

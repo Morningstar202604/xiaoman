@@ -342,6 +342,38 @@ async def test_chat_does_not_hijack_questions(client, question) -> None:
     assert len(d["transactions"]) == before
 
 
+# —— 问答来源可溯源（route/llm 随回答落库，历史才能显示真实来源）——
+async def test_run_stores_route_and_llm(client) -> None:
+    await _ask(client, "帮我写一段周末计划", thread_id="prov-1")
+    runs = (await client.get("/api/history?thread_id=prov-1")).json()["runs"]
+    assert len(runs) == 1
+    r = runs[0]
+    assert r["route"] == "general", "通用问答的 route 应落库"
+    assert r["llm"] == "template", "未接入模型时 llm 应落 template"
+    assert r["route_reason"], "route_reason 应一并落库"
+
+
+async def test_finance_run_stores_route(client) -> None:
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id="prov-2")
+    r = (await client.get("/api/history?thread_id=prov-2")).json()["runs"][0]
+    assert r["route"] in ("ledger", "both", "market")
+    assert r["llm"] in ("template", "llm")
+
+
+async def test_history_without_provenance_does_not_fake_it(client) -> None:
+    """旧记录（新增列前写入、来源为空）不得被当成有来源。"""
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id="prov-3")
+    # 模拟「新增列之前写入」的旧记录：来源列为空
+    conn = await db._conn()
+    await conn.execute(
+        "UPDATE runs SET route='', llm='', route_reason='' WHERE thread_id=?", ("prov-3",)
+    )
+    await conn.commit()
+    r = (await client.get("/api/history?thread_id=prov-3")).json()["runs"][0]
+    assert r["route"] == "" and r["llm"] == ""
+    assert r["level"], "等级仍应保留（runs 一直有存）"
+
+
 async def test_ask_sse_flow(client) -> None:
     async with client.stream(
         "POST", "/api/ask", json={"question": "我这个月的钱都花到哪了？"}

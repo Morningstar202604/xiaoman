@@ -627,6 +627,9 @@ async def ask(payload: dict):
                 answer=result["answer"],
                 level=result["level"],
                 flags=result["flags"],
+                route=result.get("route", ""),
+                llm=result.get("llm", ""),
+                route_reason=result.get("route_reason", ""),
             )
         except Exception:  # noqa: BLE001 — 落库失败不打断交付
             log.exception("save_run failed")

@@ -74,6 +74,9 @@ async def generate_report() -> dict[str, Any]:
             answer=result["answer"],
             level=result["level"],
             flags=result["flags"],
+            route=result.get("route", ""),
+            llm=result.get("llm", ""),
+            route_reason=result.get("route_reason", ""),
         )
         _state["generated"] += 1
         _state["last_run_at"] = datetime.now().astimezone().isoformat(timespec="seconds")

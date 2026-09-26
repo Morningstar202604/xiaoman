@@ -184,7 +184,10 @@ CREATE TABLE IF NOT EXISTS runs (
     answer        TEXT NOT NULL,
     level         TEXT NOT NULL DEFAULT '',
     flags_json    TEXT NOT NULL DEFAULT '[]',
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    route         TEXT NOT NULL DEFAULT '',
+    llm           TEXT NOT NULL DEFAULT '',
+    route_reason  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id, id);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -228,6 +231,12 @@ async def _migrate_add_columns() -> None:
     cols = {
         "subscriptions": {"due_day": "TEXT NOT NULL DEFAULT ''"},
         "debts": {"due_day": "TEXT NOT NULL DEFAULT ''"},
+        # 问答来源可溯源：route/llm 落库后历史回答也能显示真实来源（此前只能显示等级）
+        "runs": {
+            "route": "TEXT NOT NULL DEFAULT ''",
+            "llm": "TEXT NOT NULL DEFAULT ''",
+            "route_reason": "TEXT NOT NULL DEFAULT ''",
+        },
     }
     for table, adds in cols.items():
         cur = await _db.execute(f"PRAGMA table_info({table})")
@@ -544,12 +553,15 @@ async def save_run(
     answer: str,
     level: str,
     flags: list[dict[str, Any]] | None = None,
+    route: str = "",
+    llm: str = "",
+    route_reason: str = "",
 ) -> dict[str, Any]:
     conn = await _conn()
     created = datetime.now().astimezone().isoformat(timespec="seconds")
     cur = await conn.execute(
-        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at)"
-        " VALUES(?,?,?,?,?,?)",
+        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
         (
             thread_id or "default",
             question,
@@ -557,6 +569,9 @@ async def save_run(
             level or "",
             json.dumps(flags or [], ensure_ascii=False),
             created,
+            route or "",
+            llm or "",
+            route_reason or "",
         ),
     )
     await conn.commit()
