@@ -1,4 +1,10 @@
-/** ECharts 按需注册 + 轻量挂载 hook + 主题感知色板（运行时懒加载，echarts 不进首屏包）。 */
+/** ECharts 按需注册 + 轻量挂载 hook + 主题感知色板（运行时懒加载，echarts 不进首屏包）。
+ *
+ * 为什么自己写这 40 行而不引 echarts-for-react：3.0.6 在本项目（Vite 5 + React 18）下
+ * 打包后运行时报 "Class extends value undefined"（其 CJS 产物经 tslib.__importStar
+ * 取 React default），改指 ESM 产物后仍报 PureComponent undefined，收益仅 gzip +6KB，
+ * 故保留自实现——实例 init 一次、option 变化只 setOption、卸载 dispose。
+ */
 
 import { useEffect, useRef, type RefObject } from "react";
 import type { EChartsCoreOption, EChartsType } from "echarts/core";
@@ -37,8 +43,8 @@ function loadEcharts(): Promise<EChartsModule> {
 
 /** 把 option 挂到容器上，容器尺寸变化自动 resize；echarts 运行时按需异步加载。
  *
- * 实例只初始化一次：option 变化走 setOption，避免每次数据刷新都 dispose+init
- * （重建实例会丢动画、闪烁，且三个图在仪表盘切换时反复重绘）。
+ * 实例生命周期只跟容器走：挂载时 init 一次（不依赖 option 是否已就绪），卸载时 dispose。
+ * option 后到或变化都只走 setOption，不重建实例（重建会丢动画并闪烁）。
  */
 export function useEChart(
   ref: RefObject<HTMLDivElement | null>,
@@ -48,8 +54,6 @@ export function useEChart(
   const optionRef = useRef<EChartsCoreOption | null>(null);
   optionRef.current = option;
 
-  // 实例生命周期只跟容器走：挂载时 init 一次（不依赖 option 是否已就绪），
-  // 卸载时 dispose。option 后到就由下面的更新 effect 推 setOption。
   useEffect(() => {
     if (!ref.current) return;
     let disposed = false;

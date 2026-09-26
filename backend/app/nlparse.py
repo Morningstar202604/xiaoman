@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 
+import cn2an
+
 # 分类关键词（按序匹配，越靠前越具体；收入词在收入分支单独判断）
 CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
     (
@@ -117,6 +119,15 @@ _NON_AMOUNT_DIGITS = re.compile(
     r"\d{1,2}\s*月|[A-Za-z]+\d+|\d+\s*(?:股|份|手|个|件|人|天|次|张|瓶|斤|米|码|楼|号)"
 )
 
+# 中文数字金额（cn2an）：口语记账里「三十块」「一万二」「五毛」比阿拉伯数字更常见
+_CN = "零一二三四五六七八九十百千万亿两"
+_CN_WITH_UNIT = re.compile(rf"([{_CN}]+)\s*(块|元|钱|圆|毛|角)\s*([{_CN}]+)?")
+_CN_BARE = re.compile(rf"[{_CN}]+")
+# 紧跟量词/时间单位的中文数字不是金额：「三件衣服」「三天前」「二月」「十点半」
+_CN_NOT_MONEY = re.compile(
+    rf"[{_CN}]+\s*(?:月|日|号|点|半|时|分|天|周|年|件|个|次|张|杯|碗|份|斤|袋|瓶|盒|套|双|把|台|部|趟|岁|人|口|家|顿)"
+)
+
 
 def _to_amount(m: re.Match) -> float:
     num = float(m.group(1).replace(",", ""))
@@ -125,14 +136,47 @@ def _to_amount(m: re.Match) -> float:
     return round(num, 2)
 
 
+def _cn_amount(text: str) -> float | None:
+    """中文数字金额 → 元。带货币单位优先（「十五块五」= 15.5）；无单位时只认
+    含十/百/千/万/亿 的复合数（「二十」「八千」「一万二」），避免把「三件」「三天」当钱。"""
+    m = _CN_WITH_UNIT.search(text)
+    if m:
+        base = _cn_to_float(m.group(1))
+        if base is not None:
+            unit = m.group(2)
+            frac = _cn_to_float(m.group(3)) if m.group(3) else None
+            if unit in ("毛", "角"):
+                return round(base / 10 + (frac or 0) / 100, 2)
+            return round(base + (frac / 10 if frac is not None else 0), 2)
+    for m in _CN_BARE.finditer(text):
+        token = m.group(0)
+        if not re.search(r"[十百千万亿]", token):
+            continue
+        if _CN_NOT_MONEY.match(text[m.end() :]):
+            continue
+        val = _cn_to_float(token)
+        if val:
+            return round(val, 2)
+    return None
+
+
+def _cn_to_float(token: str) -> float | None:
+    try:
+        return float(cn2an.transform(token, "cn2an"))
+    except Exception:  # noqa: BLE001 — 非法中文数字（如「零」）返回 None
+        return None
+
+
 def _parse_amount(text: str) -> float | None:
-    """提取金额：支持千分位、小数、带「万」。返回元，None 表示没有金额。"""
+    """提取金额：阿拉伯数字带货币单位 → 阿拉伯数字 → 中文数字。返回元，None 表示没有金额。"""
     for pattern in (_AMOUNT_PREFIX, _AMOUNT_SUFFIX):
         m = pattern.search(text)
         if m:
             return _to_amount(m)
     m = _AMOUNT_PLAIN.search(_NON_AMOUNT_DIGITS.sub(" ", text))
-    return _to_amount(m) if m else None
+    if m:
+        return _to_amount(m)
+    return _cn_amount(text)
 
 
 def _parse_date(text: str, today: date) -> tuple[str | None, str]:

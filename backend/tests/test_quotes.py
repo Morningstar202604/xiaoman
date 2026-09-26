@@ -90,3 +90,63 @@ async def test_live_quotes_eastmoney_marks_source(monkeypatch) -> None:
     out = await quotes.live_quotes(positions)
     assert out["000001"] == 11.5
     assert quotes.last_source() == "eastmoney"
+
+
+# ---------------------------------------------------------------------------
+# K 线（东财 push2his）：日/周/月，前复权，失败降级为 None
+# ---------------------------------------------------------------------------
+
+
+def test_kline_period_to_klt() -> None:
+    assert quotes.KLT["daily"] == 101
+    assert quotes.KLT["weekly"] == 102
+    assert quotes.KLT["monthly"] == 103
+
+
+def test_parse_kline_rows() -> None:
+    """kline 字符串数组 → 结构化点；坏行跳过而不是整体失败。"""
+    raw = [
+        "2026-09-24,1520.00,1530.00,1535.00,1515.00,12345,1.23,0.66,1.32,10.00,0.05",
+        "2026-09-25,1530.00,1545.12,1548.00,1528.00,23456,1.50,0.99,1.88,20.12,0.08",
+        "坏行",
+    ]
+    pts = quotes._parse_kline_rows(raw)
+    assert len(pts) == 2
+    assert pts[0]["date"] == "2026-09-24"
+    assert pts[0]["close"] == 1530.00
+    assert pts[0]["high"] == 1535.00
+    assert pts[0]["pct_change"] == 1.32
+    assert pts[1]["close"] == 1545.12
+
+
+async def test_kline_degrades_on_error(monkeypatch) -> None:
+    """网络/解析失败 → 返回 None（调用方据此跳过图表），绝不抛错。"""
+    async def _boom(_sid, _klt, _limit):
+        raise RuntimeError("network down")
+    monkeypatch.setattr(quotes, "_fetch_kline", _boom)
+    assert await quotes.kline("600519") is None
+
+
+async def test_kline_unmappable_symbol_returns_none(monkeypatch) -> None:
+    """现金/场外基金没有 K 线 → None，不发请求。"""
+    async def _never(*_a, **_k):
+        raise AssertionError("不该发请求")
+    monkeypatch.setattr(quotes, "_fetch_kline", _never)
+    assert await quotes.kline("CASH") is None
+
+
+async def test_kline_returns_points_and_caches(monkeypatch) -> None:
+    calls = {"n": 0}
+
+    async def _ok(_sid, _klt, _limit):
+        calls["n"] += 1
+        return ["2026-09-25,1530.00,1545.12,1548.00,1528.00,23456,1.50,0.99,1.88,20.12,0.08"]
+
+    monkeypatch.setattr(quotes, "_fetch_kline", _ok)
+    await quotes.invalidate_quotes_cache()
+    a = await quotes.kline("600519", "daily", limit=5)
+    await quotes.kline("600519", "daily", limit=5)
+    assert a is not None and a["symbol"] == "600519"
+    assert a["period"] == "daily"
+    assert a["points"][0]["close"] == 1545.12
+    assert calls["n"] == 1, "同参数 300s 内应命中缓存"

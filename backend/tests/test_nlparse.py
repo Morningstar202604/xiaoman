@@ -27,6 +27,21 @@ def test_amount_plain_fallback() -> None:
     assert nlparse.parse("乱七八糟") is None
 
 
+def test_amount_chinese_numerals() -> None:
+    """中文数字金额（cn2an）：口语记账里「三十块」「一万二」很常见。"""
+    assert nlparse.parse("午饭三十块")["amount"] == -30
+    assert nlparse.parse("午饭三十元")["amount"] == -30
+    assert nlparse.parse("房租一万二")["amount"] == -12000
+    assert nlparse.parse("打车二十")["amount"] == -20
+    assert nlparse.parse("工资八千")["amount"] == 8000
+    assert nlparse.parse("奶茶十五块五")["amount"] == -15.5
+
+
+def test_chinese_numerals_need_unit_or_context() -> None:
+    """纯中文数字但无货币语义时不猜（「三」「二月」不是金额）。"""
+    assert nlparse.parse("三月") is None
+
+
 def test_relative_date_longest_word_wins() -> None:
     """「大前天」不得被「前天」抢先匹配。"""
     r = nlparse.parse("大前天吃饭 50")

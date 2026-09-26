@@ -1,10 +1,12 @@
-"""模型接入：httpx 直连任何 OpenAI 兼容端点（豆包 / DeepSeek / 通义千问 / Agnes 等）。
+"""模型接入：官方 openai SDK（AsyncOpenAI）直连任何 OpenAI 兼容端点
+（豆包 / DeepSeek / 通义千问 / Agnes 等）。
+
+相比自研 httpx 调用，SDK 自带指数退避重试（429/5xx/超时，默认 2 次）、
+统一错误类型与流式解析；未配置或全部失败时仍退回确定性模板，不冒充模型输出。
 
 配置来源（优先级）：
 1. 设置中心的「AI 回答」配置（ai_enabled=on 且 base/key/model 非空时生效）
 2. 环境变量 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
-
-未配置或调用失败 → 返回确定性模板（服务层兜底），不冒充模型输出。
 """
 
 from __future__ import annotations
@@ -13,14 +15,22 @@ import json
 import os
 import re
 from collections.abc import AsyncIterator
+from typing import Any
 
-import httpx
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 load_dotenv()
 
-_client: httpx.AsyncClient | None = None
+# 重试：连接错误/超时/429/5xx 最多重试 2 次（SDK 默认值），退避由 SDK 处理
+MAX_RETRIES = 2
+STREAM_TIMEOUT = 60.0
+JSON_TIMEOUT = 20.0
+
+_client: AsyncOpenAI | None = None
 _cfg: dict[str, str] | None = None
+# 构造入参（测试注入 MockTransport 用；生产为 None）
+_client_kwargs: dict[str, Any] | None = None
 
 
 async def _config() -> dict[str, str] | None:
@@ -60,17 +70,42 @@ async def llm_available() -> bool:
     return await _config() is not None
 
 
-def _client_ref() -> httpx.AsyncClient:
+def _client_ref() -> AsyncOpenAI | None:
+    """惰性构造 SDK 客户端；构造失败（缺 key 等）返回 None 由调用方降级。"""
     global _client
-    if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(timeout=60.0)
+    if _client is None:
+        try:
+            _client = AsyncOpenAI(
+                api_key=os.getenv("LLM_API_KEY", "") or "unset",
+                base_url=os.getenv("LLM_BASE_URL", "") or None,
+                max_retries=MAX_RETRIES,
+                timeout=STREAM_TIMEOUT,
+                **(_client_kwargs or {}),
+            )
+        except Exception:  # noqa: BLE001 — 客户端构造失败视为未接入
+            return None
     return _client
+
+
+def _sdk(cfg: dict[str, str], *, timeout: float, **kwargs: Any) -> AsyncOpenAI:
+    """按当前配置构造一次性客户端（每次调用独立，避免配置切换后残留旧 client）。"""
+    return AsyncOpenAI(
+        api_key=cfg["key"],
+        base_url=cfg["base"],
+        max_retries=MAX_RETRIES,
+        timeout=timeout,
+        **kwargs,
+    )
 
 
 async def aclose() -> None:
     global _client
-    if _client is not None and not _client.is_closed:
-        await _client.aclose()
+    if _client is not None:
+        try:
+            await _client.close()
+        except Exception:  # noqa: BLE001 — 关闭失败不影响退出
+            pass
+    _client = None
 
 
 async def stream_narrate(system: str, user: str, fallback: str) -> AsyncIterator[tuple[str, str]]:
@@ -82,45 +117,31 @@ async def stream_narrate(system: str, user: str, fallback: str) -> AsyncIterator
     if cfg is None:
         yield fallback, "template"
         return
+    got_any = False
     try:
-        payload = {
-            "model": cfg["model"],
-            "messages": [
+        stream = await _sdk(cfg, timeout=STREAM_TIMEOUT, **(_client_kwargs or {})).chat.completions.create(
+            model=cfg["model"],
+            messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": 0.2,
-            "stream": True,
-        }
-        async with _client_ref().stream(
-            "POST",
-            f"{cfg['base']}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {cfg['key']}"},
-        ) as resp:
-            resp.raise_for_status()
-            got_any = False
-            async for line in resp.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                chunk = line[5:].strip()
-                if chunk == "[DONE]":
-                    break
-
-                try:
-                    delta = json.loads(chunk)["choices"][0]["delta"].get("content", "")
-                except Exception:  # noqa: BLE001 — 跳过无法解析的帧
-                    continue
-                if delta:
-                    got_any = True
-                    yield delta, "llm"
-            if not got_any:
-                yield fallback, "template"
-    except Exception:  # noqa: BLE001 — 流中断整体退回模板
+            temperature=0.2,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                got_any = True
+                yield delta, "llm"
+    except Exception:  # noqa: BLE001 — 网络/解析失败统一视为不可用
+        if not got_any:
+            yield fallback, "template"
+            return
+    if not got_any:
         yield fallback, "template"
 
 
-async def json_complete(system: str, user: str, timeout: float = 20.0) -> dict | None:
+async def json_complete(system: str, user: str, timeout: float = JSON_TIMEOUT) -> dict | None:
     """非流式单次完成，期望返回 JSON 对象（如结构化解析）。
 
     未配置 / 端点失败 / 输出无法解析 → None（由调用方决定降级），不冒充结果。
@@ -129,27 +150,23 @@ async def json_complete(system: str, user: str, timeout: float = 20.0) -> dict |
     if cfg is None:
         return None
     try:
-        payload = {
-            "model": cfg["model"],
-            "messages": [
+        resp = await _sdk(cfg, timeout=timeout, **(_client_kwargs or {})).chat.completions.create(
+            model=cfg["model"],
+            messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": 0.1,
-            "stream": False,
-        }
-        async with httpx.AsyncClient(timeout=timeout) as c:
-            resp = await c.post(
-                f"{cfg['base']}/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {cfg['key']}"},
-            )
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-        m = re.search(r"\{[\s\S]*\}", content)
-        if not m:
-            return None
-        data = json.loads(m.group(0))
-        return data if isinstance(data, dict) else None
+            temperature=0.1,
+            stream=False,
+        )
+        content = resp.choices[0].message.content or ""
     except Exception:  # noqa: BLE001 — 网络/解析失败统一视为不可用
         return None
+    m = re.search(r"\{[\s\S]*\}", content)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None

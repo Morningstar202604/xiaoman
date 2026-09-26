@@ -2,9 +2,12 @@
 fastapi>=0.115
 uvicorn[standard]>=0.32
 aiosqlite>=0.22          # 异步 SQLite，不阻塞事件循环
-httpx>=0.28              # 行情 + 模型调用（OpenAI 兼容）
+httpx>=0.28              # 行情（东财 push2 / push2his）
+openai>=3.19             # 模型调用：官方 SDK（自带重试与流式解析，替掉自研 httpx 客户端）
+cn2an>=0.5.24            # 中文数字金额（三千块 / 一万二 / 五毛）
 python-dotenv>=1.0
 apscheduler>=3.10,<4     # 定时晨报（替代自研 asyncio 循环）
+pydantic>=2.13           # 请求体校验（FastAPI 自带依赖，显式登记）
 
 # 测试 / 静态检查（开发）
 pytest>=8.0

@@ -3,11 +3,13 @@
 - snapshot：用组合库里的 `last` 快照价（零网络、可复现）。
 - eastmoney：东方财富 push2 批量行情（免 key），httpx 异步请求，4s 超时。
 - auto：优先东财，失败自动降级快照。不做同步探测线程（旧实现会阻塞事件循环最长 16s）。
+- kline()：东财 push2his 日/周/月 K 线（前复权），按需拉取 + 300s 缓存，失败返回 None。
 """
 
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -132,3 +134,109 @@ async def live_quotes(positions: list[dict[str, Any]]) -> dict[str, float]:
 
 async def invalidate_quotes_cache() -> None:
     _cache.clear()
+    _kline_cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# K 线（东财 push2his）：日/周/月 K，前复权。失败一律返回 None，由调用方降级。
+# ---------------------------------------------------------------------------
+
+KLT = {"daily": 101, "weekly": 102, "monthly": 103}
+KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+_KLINE_TTL = 300.0
+_kline_cache: dict[tuple[str, str, int], tuple[float, dict[str, Any]]] = {}
+
+# f51..f61 固定顺序：日期,开,收,高,低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
+_KLINE_FIELDS = (
+    "date",
+    "open",
+    "close",
+    "high",
+    "low",
+    "volume",
+    "amount",
+    "amplitude",
+    "pct_change",
+    "change",
+    "turnover",
+)
+
+
+def _num(raw: Any) -> float | None:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_kline_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    """东财 kline 字符串数组 → 结构化点；坏行跳过，不影响其余。"""
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, str):
+            continue
+        parts = row.split(",")
+        if len(parts) < 11:
+            continue
+        point: dict[str, Any] = {"date": parts[0].strip()}
+        for key, raw in zip(_KLINE_FIELDS[1:], parts[1:11], strict=False):
+            point[key] = _num(raw)
+        if point["close"] is None:
+            continue
+        out.append(point)
+    return out
+
+
+async def _fetch_kline(secid: str, klt: int, limit: int) -> list[str]:
+    params = {
+        "secid": secid,
+        "klt": str(klt),
+        "fqt": "1",  # 前复权
+        "beg": "19900101",
+        "end": "20500101",
+        "lmt": str(max(1, min(limit, 1000))),
+        "fields1": "f1,f2,f3,f4,f5,f6",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+        "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+    }
+    headers = {"User-Agent": "Mozilla/5.0 (wealth-office)"}
+    async with httpx.AsyncClient(timeout=6.0) as client:
+        resp = await client.get(KLINE_URL, params=params, headers=headers)
+        resp.raise_for_status()
+        data = (resp.json() or {}).get("data") or {}
+    rows = data.get("klines") or []
+    return [r for r in rows if isinstance(r, str)]
+
+
+async def kline(
+    symbol: str, period: str = "daily", limit: int = 120
+) -> dict[str, Any] | None:
+    """取 K 线：{symbol, period, points, source}；不可用或失败一律 None。
+
+    与实时行情同源（东财），但**不进总览请求**——只在用户点开某只标的时按需拉，
+    300s 缓存，避免拖慢首屏。
+    """
+    secid = _to_secid(symbol)
+    klt = KLT.get(period, KLT["daily"])
+    if not secid:
+        return None
+    key = (secid, period, max(1, min(limit, 1000)))
+    hit = _kline_cache.get(key)
+    if hit and time.time() - hit[0] < _KLINE_TTL:
+        return hit[1]
+    try:
+        rows = await _fetch_kline(secid, klt, key[2])
+    except Exception:  # noqa: BLE001 — K 线失败不影响任何其他功能
+        return None
+    points = _parse_kline_rows(rows)
+    if not points:
+        return None
+    out: dict[str, Any] = {
+        "symbol": symbol,
+        "period": period,
+        "points": points[-key[2] :],
+        "source": "eastmoney",
+        "fetched_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    _kline_cache[key] = (time.time(), out)
+    return out
