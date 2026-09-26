@@ -533,8 +533,14 @@ export function ChatView({
       {/* 输入区 */}
       <div className="border-t border-border bg-card/80 backdrop-blur px-3 py-3">
         {!bootstrap?.health?.llm_configured && (
+          /* 移动端只留一句（横幅曾占两行、挤掉输入区），完整说明留给 ≥sm */
           <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-            <span>AI 未接入：自由问答需先在设置里配置模型；当前由内置分析回答财务问题。</span>
+            <span className="min-w-0">
+              <span className="sm:hidden">未接入 AI，自由问答需先配置模型</span>
+              <span className="hidden sm:inline">
+                AI 未接入：自由问答需先在设置里配置模型；当前由内置分析回答财务问题。
+              </span>
+            </span>
             <Button variant="outline" size="sm" className="h-6 shrink-0 px-2" onClick={onOpenSettings}>
               去接入
             </Button>
