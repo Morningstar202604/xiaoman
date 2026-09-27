@@ -374,6 +374,46 @@ async def test_history_without_provenance_does_not_fake_it(client) -> None:
     assert r["level"], "等级仍应保留（runs 一直有存）"
 
 
+# —— 默认路径必须是通用 agent（有记忆、无财务分级、无内部步骤泄漏）——
+async def test_general_chat_carries_conversation_memory(client, monkeypatch) -> None:
+    """通用 agent 的基本要求：第二轮要看得见第一轮。"""
+    calls = _capture_llm(monkeypatch)
+    tid = "agent-mem"
+    await _ask(client, "帮我写一段周末计划", thread_id=tid)
+    await _ask(client, "再短一点", thread_id=tid)
+    assert len(calls) == 2
+    hist = _payload(calls[1]).get("history") or []
+    assert len(hist) == 2, "第二轮应带上第一轮问答"
+    assert "周末计划" in hist[0]["content"]
+    assert hist[1]["role"] == "assistant"
+
+
+async def test_general_chat_never_carries_finance_history(client, monkeypatch) -> None:
+    """隐私边界不因加记忆而破：财务历史绝不进入通用请求。"""
+    calls = _capture_llm(monkeypatch)
+    tid = "agent-privacy"
+    await _ask(client, "我这个月的钱都花到哪了？", thread_id=tid)
+    await _ask(client, "帮我写一段周末计划", thread_id=tid)
+    assert "history" not in _payload(calls[1]), "通用请求不得携带财务历史"
+
+
+async def test_general_answer_has_no_internal_level(client) -> None:
+    """通用闲聊不该套财务分级（level 留空 → 前端不显示等级徽标）。"""
+    final = await _ask(client, "帮我写一段周末计划", thread_id="agent-level")
+    assert final["route"] == "general"
+    assert final["level"] == "", "通用回答不应带等级代号"
+
+
+async def test_general_answer_emits_no_internal_steps(client) -> None:
+    """通用闲聊不该显示「查看分析过程」（内部步骤不进用户界面）。"""
+    async with client.stream(
+        "POST", "/api/ask", json={"question": "帮我写一段周末计划", "thread_id": "agent-steps"}
+    ) as resp:
+        events = await _sse_events(resp)
+    assert not [e for e in events if e["type"] == "step"], "通用路径不应发内部步骤事件"
+    assert [e["type"] for e in events][-1] == "done"
+
+
 async def test_ask_sse_flow(client) -> None:
     async with client.stream(
         "POST", "/api/ask", json={"question": "我这个月的钱都花到哪了？"}

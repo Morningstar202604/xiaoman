@@ -318,11 +318,36 @@ await histPage.waitForTimeout(600);
 const chatBody = await histPage.locator("main").innerText();
 check("历史回答不显示「基于你的数据计算」", !chatBody.includes("基于你的数据计算"));
 check("界面无内部等级代号 L0/L1/L2", !/\bL[012]\s/.test(chatBody));
-// 标签具体是哪一个取决于首屏会话，故只断言「是人话之一」而非某个特定标签
-check(
-  "来源标签为用户可理解的词",
-  /需要处理|数据洞察|已记账|通用回答/.test(chatBody) || !/L[012]\s/.test(chatBody),
+check("界面无「通用回答」这类多余标签", !chatBody.includes("通用回答"));
+
+// 默认路径是通用 agent：无数据时给的是通用建议，不是财务问卷
+const agentPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+agentPage.on("pageerror", (e) => errors.push(String(e)));
+await agentPage.route("**/api/dashboard", async (route) => {
+  const res = await route.fetch();
+  const json = await res.json();
+  json.positions = [];
+  json.transactions = [];
+  const headers = { ...res.headers() };
+  delete headers["content-length"];
+  await route.fulfill({ status: res.status(), headers, body: JSON.stringify(json) });
+});
+await agentPage.route("**/api/sessions", async (route) => {
+  if (route.request().method() === "POST") {
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ thread_id: "agent-empty" }) });
+  }
+  return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ sessions: [] }) });
+});
+await agentPage.route("**/api/history?thread_id=agent-empty*", async (route) =>
+  route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runs: [] }) }),
 );
+await agentPage.goto(BASE, { waitUntil: "networkidle" });
+await agentPage.waitForTimeout(800);
+const agentTxt = await agentPage.locator("main").innerText();
+check("空态自述为通用助手", agentTxt.includes("我是随身理财"));
+check("空态建议体现通用能力", agentTxt.includes("理一理") || agentTxt.includes("改得更专业"));
+check("空态不追问财务问题", !agentTxt.includes("支持哪些方式导入账单"));
+await agentPage.close();
 await histPage.close();
 
 // 统计栏金额与百分比分行，不被截断

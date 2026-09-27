@@ -133,43 +133,20 @@ def route_question(question: str) -> tuple[str, str]:
     return "general", "未命中财务关键词，按通用问答处理"
 
 
-async def _run_general(question: str, reason: str, emit: Emit) -> dict[str, Any]:
-    """通用问答：跳过取数与风控，不注入也不外发任何财务数据，不拼财务免责声明。"""
-    await emit({
-        "type": "step", "id": "supervisor", "label": "理解问题",
-        "detail": f"{reason}，直接回答", "phase": "done",
-    })
-    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "生成回答", "phase": "start"})
+async def _build_history(
+    thread_id: str | None, only_route: str | None = None
+) -> list[dict[str, str]]:
+    """取本会话最近若干轮问答（时间正序），让助手记得上文。
 
-    user = json.dumps({"question": question}, ensure_ascii=False)
-    chunks: list[str] = []
-    src = "template"
-    async for delta, s in llm.stream_narrate(GENERAL_SYSTEM, user, GENERAL_FALLBACK):
-        src = s
-        chunks.append(delta)
-        await emit({"type": "text", "delta": delta})
-
-    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "已完成", "phase": "done"})
-    return {
-        "answer": "".join(chunks).strip() or GENERAL_FALLBACK,
-        "level": "L0 通用",
-        "route": "general",
-        "route_reason": reason,
-        "metrics": {},
-        "flags": [],
-        "llm": src,
-    }
-
-
-async def _build_history(thread_id: str | None) -> list[dict[str, str]]:
-    """取本会话最近若干轮问答（时间正序），供模型理解「那上个月呢」这类省略追问。
-
-    仅财务路由调用：general 路由绝不带历史（财务内容不出机，见 R6/隐私边界）。
+    only_route="general" 时只取同为通用的轮次：通用 agent 也有对话记忆，
+    但财务轮次的内容绝不出机（隐私边界，见 test_general_chat_never_carries_finance_history）。
     未接入模型时直接返回空，避免无意义的 DB 查询。
     """
     if not thread_id or not await llm.llm_available():
         return []
     runs = await db.list_runs(thread_id, HISTORY_TURNS)
+    if only_route:
+        runs = [r for r in runs if (r.get("route") or "") == only_route]
     out: list[dict[str, str]] = []
     for r in reversed(runs):  # list_runs 是倒序（最新在前），翻成时间正序
         q = str(r.get("question") or "").strip()
@@ -179,6 +156,37 @@ async def _build_history(thread_id: str | None) -> list[dict[str, str]]:
         if a:
             out.append({"role": "assistant", "content": a[:HISTORY_ANSWER_CHARS]})
     return out
+
+
+async def _run_general(question: str, reason: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
+    """默认路径：通用 agent。
+
+    - 带同会话的通用上下文（它得记得上文，否则不叫 agent）
+    - 不注入也不外发任何财务数据；财务轮次的历史同样不出机
+    - 不套财务分级（level 留空）、不拼财务免责声明、不发内部步骤（工程细节不进界面）
+    """
+    history = await _build_history(thread_id, only_route="general")
+    user_obj: dict[str, Any] = {"question": question}
+    if history:
+        user_obj["history"] = history
+    user = json.dumps(user_obj, ensure_ascii=False)
+
+    chunks: list[str] = []
+    src = "template"
+    async for delta, s in llm.stream_narrate(GENERAL_SYSTEM, user, GENERAL_FALLBACK):
+        src = s
+        chunks.append(delta)
+        await emit({"type": "text", "delta": delta})
+
+    return {
+        "answer": "".join(chunks).strip() or GENERAL_FALLBACK,
+        "level": "",
+        "route": "general",
+        "route_reason": reason,
+        "metrics": {},
+        "flags": [],
+        "llm": src,
+    }
 
 
 async def run_question(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
@@ -196,7 +204,7 @@ async def run_question(question: str, emit: Emit, thread_id: str | None = None) 
         return recorded
 
     if route == "general":
-        return await _run_general(question, reason, emit)
+        return await _run_general(question, reason, emit, thread_id)
 
     await emit({
         "type": "step", "id": "supervisor", "label": "理解问题",
