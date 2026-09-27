@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  ChevronDown, ChevronUp, Copy, Download, Loader2, MessageCircle, Mic, MicOff, RotateCcw, Search, Send, Square, Sparkles,
+  ChevronDown, ChevronUp, Copy, Download, Loader2, MessageCircle, Mic, MicOff, RotateCcw, Search, Send, Square, Sparkles, Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +13,27 @@ import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { AnswerMeta, RunRecord } from "@/lib/types";
+import type { AgentToolStep, AnswerMeta, RunRecord } from "@/lib/types";
 
 interface StepInfo {
   id: string;
   label: string;
   detail: string;
+}
+
+/** 工具名 → 用户能看懂的动作（工具名是内部契约，不出口） */
+const TOOL_LABELS: Record<string, string> = {
+  get_market_view: "查看持仓",
+  get_ledger_view: "核对账本",
+  get_risk_flags: "风控扫描",
+  get_budget: "查预算",
+  get_trend: "查收支趋势",
+  record_transaction: "记账",
+  get_kline: "查K线",
+};
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name;
 }
 
 interface ChatMessage {
@@ -29,11 +44,14 @@ interface ChatMessage {
   q?: string;
   meta?: AnswerMeta;
   steps: StepInfo[];
+  /** agent 模式：模型调用过的工具（实时展示） */
+  tools?: AgentToolStep[];
   error?: string;
   created_at?: string;
 }
 
 const BASE_SUGGESTIONS = [
+  "帮我体检一下财务状况",
   "我这个月的钱都花到哪了？",
   "帮我看看持仓有什么风险",
   "我的组合现在赚还是亏？",
@@ -122,13 +140,14 @@ export function ChatView({
           .slice()
           .reverse()
           .flatMap((r) => [
-            { id: msgSeq++, role: "user" as const, text: r.question, steps: [] },
+            { id: msgSeq++, role: "user" as const, text: r.question, steps: [], tools: [] },
             {
               id: msgSeq++,
               role: "assistant" as const,
               text: r.answer,
               q: r.question,
               steps: [],
+              tools: [],
               // 来源随回答落库（route/llm/route_reason）：有就显示真实来源，
               // 旧记录或空值一律留空 —— 拿不到就不说，不猜。
               meta: {
@@ -139,6 +158,7 @@ export function ChatView({
                 metrics: {},
                 flags: r.flags,
                 llm: (r.llm || undefined) as "llm" | "template" | undefined,
+                tools: r.tools ?? [],
               },
               created_at: r.created_at,
             },
@@ -169,7 +189,7 @@ export function ChatView({
     let asstMsg: ChatMessage;
     if (regen) {
       // 重新生成：替换最后一条回答（原用户消息保留）
-      asstMsg = { id: msgSeq++, role: "assistant", text: "", q, steps: [] };
+      asstMsg = { id: msgSeq++, role: "assistant", text: "", q, steps: [], tools: [] };
       setMessages((prev) => {
         const out = [...prev];
         for (let i = out.length - 1; i >= 0; i--) {
@@ -181,15 +201,15 @@ export function ChatView({
         return out;
       });
     } else {
-      const userMsg: ChatMessage = { id: msgSeq++, role: "user", text: q, steps: [] };
-      asstMsg = { id: msgSeq++, role: "assistant", text: "", q, steps: [] };
+      const userMsg: ChatMessage = { id: msgSeq++, role: "user", text: q, steps: [], tools: [] };
+      asstMsg = { id: msgSeq++, role: "assistant", text: "", q, steps: [], tools: [] };
       setMessages((prev) => [...prev, userMsg, asstMsg]);
     }
     scrollBottom();
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const acc = { text: "", steps: [] as StepInfo[] };
+    const acc = { text: "", steps: [] as StepInfo[], tools: [] as AgentToolStep[] };
 
     try {
       await apiStream(
@@ -200,6 +220,14 @@ export function ChatView({
             case "text":
               acc.text += String(ev.delta ?? "");
               patchMsg(asstMsg.id, { text: acc.text });
+              break;
+            case "agent_step":
+              acc.tools.push({
+                name: String(ev.name),
+                args: (ev.args as Record<string, unknown>) ?? {},
+                summary: String(ev.summary ?? ""),
+              });
+              patchMsg(asstMsg.id, { tools: [...acc.tools] });
               break;
             case "step":
               if (ev.phase === "done") {
@@ -219,6 +247,7 @@ export function ChatView({
                   metrics: (ev.metrics as Record<string, number>) ?? {},
                   flags: (ev.flags as AnswerMeta["flags"]) ?? [],
                   llm: (ev.llm as "llm" | "template") ?? "template",
+                  tools: (ev.tools as string[] | undefined) ?? [],
                 },
               });
               break;
@@ -324,7 +353,7 @@ export function ChatView({
     (dashboard?.positions.length ?? 0) > 0 || (dashboard?.transactions.length ?? 0) > 0;
   const suggestions = suggestionsOn
     ? hasData
-      ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTIONS].slice(0, 5)
+      ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTIONS].slice(0, 6)
       : GENERIC_SUGGESTIONS
     : [];
 
@@ -439,7 +468,7 @@ export function ChatView({
           <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
             <div className={m.role === "user" ? "max-w-[85%]" : "max-w-full w-full"}>
               {m.role === "user" ? (
-                <div className="inline-block rounded-2xl rounded-br-md bg-primary text-primary-foreground px-4 py-2 text-sm shadow-sm">
+                <div className="inline-block rounded-2xl rounded-br-md bg-primary text-primary-foreground px-4 py-2 text-sm shadow-xs">
                   {m.text}
                 </div>
               ) : (
@@ -497,6 +526,19 @@ export function ChatView({
                       </div>
                       {m.meta && m.meta.route !== "general" && m.meta.route !== "nl_add" && (
                         <SummaryBlock meta={m.meta} />
+                      )}
+                      {m.tools && m.tools.length > 0 && (
+                        <div className="mt-2.5 space-y-1 border-l-2 border-primary/30 pl-2.5">
+                          {m.tools.map((t, i) => (
+                            <div key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                              <Wrench className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
+                              <span>
+                                <b className="text-foreground/80">{toolLabel(t.name)}</b>
+                                {t.summary ? <span className="ml-1">{t.summary}</span> : null}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       )}
                       {m.steps.length > 0 && (
                         <div className="mt-3">

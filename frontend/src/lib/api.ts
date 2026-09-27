@@ -1,8 +1,12 @@
-/** API 访问层：统一带上访问口令；遇到 401 时引导用户输入口令后重试一次。 */
+/** API 访问层：统一带访问口令（Authorization: Bearer，不进 URL/日志）；
+ * 401 时通过注册的回调打开应用内口令对话框，输入后自动重试一次；
+ * 普通请求带超时，SSE 由 fetch-event-source 管理断线重试。
+ */
 
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 
 const TOKEN_KEY = "wo.accessToken";
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? "";
@@ -13,19 +17,62 @@ export function setToken(token: string): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-async function request(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+/** 口令对话框回调（由 App 注册，返回用户输入或 null=取消） */
+let authPrompt: (() => Promise<string | null>) | null = null;
+
+export function setAuthPromptHandler(fn: (() => Promise<string | null>) | null): void {
+  authPrompt = fn;
+}
+
+async function askAuth(): Promise<string | null> {
+  if (!authPrompt) return null;
+  return authPrompt();
+}
+
+/** 带超时的 fetch：外部 signal 与超时共存（任一触发即中止）。 */
+async function fetchWithTimeout(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  const external = init.signal;
+  const onAbort = () => ctrl.abort();
+  if (external) {
+    if (external.aborted) ctrl.abort();
+    else external.addEventListener("abort", onAbort);
+  }
+  try {
+    return await fetch(path, { ...init, signal: ctrl.signal });
+  } finally {
+    window.clearTimeout(timer);
+    external?.removeEventListener("abort", onAbort);
+  }
+}
+
+function authHeaders(init: RequestInit): HeadersInit {
   const token = getToken();
-  const url = token ? `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : path;
-  const resp = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
-  });
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(init.headers ?? {}),
+  };
+}
+
+async function request(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  let resp: Response;
+  try {
+    resp = await fetchWithTimeout(path, { ...init, headers: authHeaders(init) }, REQUEST_TIMEOUT_MS);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("请求超时，请检查服务是否可用");
+    }
+    throw err;
+  }
   if (resp.status === 401 && !retried) {
-    const input = window.prompt("本服务设置了访问口令，请输入：");
-    if (input !== null) {
+    const input = await askAuth();
+    if (input) {
       setToken(input.trim());
       return request(path, init, true);
     }
+    throw new Error("需要访问口令");
   }
   return resp;
 }
@@ -63,22 +110,27 @@ export async function apiStream(
   retried = false,
 ): Promise<void> {
   const token = getToken();
-  const url = token ? `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : path;
   let got = false;
 
   try {
-    await fetchEventSource(url, {
+    await fetchEventSource(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
       signal,
       openWhenHidden: true, // 提问后切标签页也不打断
       async onopen(response) {
         if (response.status === 401) {
-          const input = window.prompt("本服务设置了访问口令，请输入：");
-          if (!retried && input !== null) {
-            setToken(input.trim());
-            throw new ReauthError();
+          if (!retried) {
+            const input = await askAuth();
+            if (input) {
+              setToken(input.trim());
+              throw new ReauthError();
+            }
           }
           throw new FatalError("需要访问口令");
         }
@@ -117,3 +169,53 @@ export async function apiStream(
     throw err instanceof Error ? err : new Error(String(err));
   }
 }
+
+// ---------------------------------------------------------------------------
+// 财务目标
+// ---------------------------------------------------------------------------
+
+export const listGoals = () =>
+  api<{ goals: import("@/lib/types").Goal[] }>("/api/goals").then((r) => r.goals);
+
+export const createGoal = (g: { name: string; target: number; saved?: number; deadline?: string }) =>
+  api<{ ok: boolean; name: string }>("/api/goals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(g),
+  });
+
+export const updateGoal = (name: string, patch: { saved?: number; target?: number; deadline?: string }) =>
+  api<{ ok: boolean }>(`/api/goals/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+
+export const deleteGoal = (name: string) =>
+  api<{ ok: boolean; deleted: number }>(`/api/goals/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ---------------------------------------------------------------------------
+// 长期记忆
+// ---------------------------------------------------------------------------
+
+export const listMemory = () =>
+  api<{ memory: import("@/lib/types").MemoryItem[] }>("/api/memory").then((r) => r.memory);
+
+export const addMemory = (content: string) =>
+  api<{ ok: boolean; id: number; deduped?: boolean }>("/api/memory", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+export const deleteMemory = (id: number) =>
+  api<{ ok: boolean; deleted: number }>(`/api/memory/${id}`, { method: "DELETE" });
+
+export const clearMemory = () =>
+  api<{ ok: boolean; deleted: number }>("/api/memory/clear", { method: "POST" });
+
+// ---------------------------------------------------------------------------
+// 财务体检
+// ---------------------------------------------------------------------------
+
+export const fetchHealthCheck = () => api<import("@/lib/types").HealthReport>("/api/health-check");

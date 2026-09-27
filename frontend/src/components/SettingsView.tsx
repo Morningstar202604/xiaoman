@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Brain, Download, KeyRound, Newspaper, PiggyBank, RefreshCw, ShieldCheck, SlidersHorizontal, Wallet,
+  Brain, BrainCog, Download, KeyRound, Newspaper, PiggyBank, Plus, RefreshCw, ShieldCheck, SlidersHorizontal, Trash2, Upload, Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,18 +10,18 @@ import { Switch } from "@/components/ui/switch";
 import { Segmented } from "@/components/ui/segmented";
 import { ConfirmDialog } from "@/components/ui/confirm";
 import { useTheme } from "@/lib/theme";
-import { api, getToken, setToken } from "@/lib/api";
+import { api, addMemory, clearMemory, deleteMemory, getToken, listMemory, setToken } from "@/lib/api";
 import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { RunRecord } from "@/lib/types";
+import type { MemoryItem, RunRecord } from "@/lib/types";
 
 const inputCls =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 const labelCls = "block text-xs text-muted-foreground mb-1";
 
-type SectionId = "prefs" | "rules" | "budget" | "ai" | "report" | "data" | "token";
+type SectionId = "prefs" | "rules" | "budget" | "ai" | "report" | "data" | "memory" | "token";
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Wallet }[] = [
   { id: "prefs", label: "偏好", icon: SlidersHorizontal },
@@ -29,6 +29,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Wallet }[] = [
   { id: "budget", label: "预算", icon: PiggyBank },
   { id: "ai", label: "AI 回答", icon: Brain },
   { id: "report", label: "每日晨报", icon: Newspaper },
+  { id: "memory", label: "长期记忆", icon: BrainCog },
   { id: "data", label: "数据与状态", icon: ShieldCheck },
   { id: "token", label: "访问口令", icon: KeyRound },
 ];
@@ -74,6 +75,117 @@ function Row({ label, children, hint }: { label: string; children: React.ReactNo
       </div>
       <div className="shrink-0">{children}</div>
     </div>
+  );
+}
+
+/** 长期记忆：AI 问答会先查这里，把用户长期信息记在这里即可全局生效 */
+function MemorySection() {
+  const [items, setItems] = useState<MemoryItem[] | null>(null);
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const { toast } = useToast();
+
+  const reload = useCallback(async () => {
+    try {
+      setItems(await listMemory());
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const submit = async () => {
+    setErr("");
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      const r = await addMemory(text.trim());
+      setText("");
+      toast(r.deduped ? "这条已经记过了，更新时间已刷新" : "已记住，问答时 AI 会参考它", "ok");
+      void reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="长期记忆" icon={<BrainCog className="w-4 h-4 text-muted-foreground" />} desc="AI 问答会先查这些记忆；你把长期信息（家庭、职业、计划）记在这里，问答就能用上">
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <label className={labelCls}>新增一条记忆</label>
+          <input
+            className={inputCls}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+            placeholder="例如：明年计划买房 / 每月收入 2 万"
+            maxLength={500}
+          />
+        </div>
+        <Button size="sm" onClick={() => void submit()} disabled={busy || !text.trim()}>
+          <Plus className="w-3.5 h-3.5" /> 记住
+        </Button>
+      </div>
+      {err && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{err}</div>}
+
+      <div className="mt-3 flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {items == null ? "读取中…" : items.length === 0 ? "还没有记忆" : `共 ${items.length} 条`}
+        </span>
+        {items && items.length > 0 && (
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => setClearOpen(true)}>
+            清空全部
+          </Button>
+        )}
+      </div>
+
+      {items && items.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {items.map((m) => (
+            <li key={m.id} className="flex items-start justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+              <span className="min-w-0 flex-1">
+                <span className="block break-words">{m.content}</span>
+                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                  {m.kind !== "fact" ? `${m.kind} · ` : ""}更新于 {fmtDate(m.updated_at)}
+                </span>
+              </span>
+              <button
+                className="shrink-0 text-muted-foreground hover:text-red-600"
+                onClick={() => void deleteMemory(m.id).then(reload)}
+                aria-label={`删除记忆 ${m.content}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <ConfirmDialog
+        open={clearOpen}
+        title="清空全部长期记忆？"
+        description="AI 问答将不再参考这些记忆，此操作不可撤销。"
+        confirmText="清空"
+        danger
+        onOpenChange={setClearOpen}
+        onConfirm={() => {
+          void clearMemory().then(() => {
+            setClearOpen(false);
+            toast("已清空长期记忆", "ok");
+            void reload();
+          });
+        }}
+      />
+    </Section>
   );
 }
 
@@ -244,6 +356,34 @@ export function SettingsView() {
       a.click();
       URL.revokeObjectURL(a.href);
       toast("备份已下载", "ok");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
+
+  const importBackup = async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
+      const r = await api<{ counts: Record<string, number> }>("/api/import/backup", {
+        method: "POST",
+        body: JSON.stringify(parsed),
+      });
+      const c = r.counts;
+      const parts = [
+        `持仓 ${c.positions ?? 0}`,
+        `流水 ${c.transactions ?? 0}`,
+        `订阅 ${c.subscriptions ?? 0}`,
+        `负债 ${c.debts ?? 0}`,
+      ].filter((p) => Number(p.split(" ")[1]) > 0);
+      toast(
+        parts.length ? `恢复完成：${parts.join("、")}（AI Key 需重新填写）` : "备份已恢复（AI Key 需重新填写）",
+        "ok",
+      );
+      await store.refreshBootstrap();
+      await store.refreshDashboard();
+      await store.refreshSessions();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
@@ -473,6 +613,9 @@ export function SettingsView() {
       </Section>)}
 
       {/* 数据 */}
+      {/* 长期记忆：AI 记住用户长期信息；可增删清空 */}
+      {active === "memory" && <MemorySection />}
+
       {active === "data" && (
       <Section title="数据与状态" icon={<ShieldCheck className="w-4 h-4 text-muted-foreground" />}>
         <div className="space-y-2">
@@ -497,6 +640,24 @@ export function SettingsView() {
             <Button variant="outline" size="sm" onClick={() => void exportBackup()}>
               <Download className="w-3.5 h-3.5" /> 导出备份
             </Button>
+          </div>
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-border/60">
+            <div className="text-xs text-muted-foreground">
+              从备份恢复全部数据（AI Key 不恢复，需重新填写；恢复会覆盖当前数据）
+            </div>
+            <label className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-transparent px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
+              <Upload className="w-3.5 h-3.5" /> 导入备份
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) setPendingImport(f);
+                }}
+              />
+            </label>
           </div>
         </div>
       </Section>)}
@@ -534,6 +695,22 @@ export function SettingsView() {
         confirmText="恢复"
         danger
         onConfirm={() => void resetSeed()}
+      />
+
+      <ConfirmDialog
+        open={pendingImport !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingImport(null);
+        }}
+        title="从备份恢复"
+        description="恢复会覆盖当前全部数据（持仓、流水、订阅、负债、预算、会话）。AI Key 不会恢复，需重新填写。确定继续吗？"
+        confirmText="恢复"
+        danger
+        onConfirm={() => {
+          const f = pendingImport;
+          setPendingImport(null);
+          if (f) void importBackup(f);
+        }}
       />
     </div>
   );

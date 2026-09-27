@@ -100,6 +100,15 @@ if (HAS_DATA) {
     skip("示例数据明示横幅", "当前库为用户数据，非示例数据");
   }
   check("总资产卡", (await page.getByText("总资产").count()) > 0);
+  check("财务目标卡", (await page.getByText("财务目标").count()) > 0);
+  check("体检入口按钮", (await page.locator("button", { hasText: "财务体检" }).count()) > 0);
+  await page.locator("button", { hasText: "财务体检" }).first().click();
+  await page.waitForTimeout(1200);
+  check("体检弹层显示综合评分", (await page.getByText("综合评分").count()) > 0);
+  check("体检弹层含维度卡片", (await page.getByText(/资产配置|现金流|负债健康|应急金|目标进度/).count()) > 0);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  check("体检弹层可关闭", (await page.getByText("综合评分").count()) === 0);
   check("明细分析折叠区", (await page.getByText("明细分析").count()) > 0);
   check("风险横幅", (await page.getByText(/发现 \d+ 项需关注|未发现明显风险项/).count()) > 0);
 } else {
@@ -128,17 +137,26 @@ await page.locator("nav:visible button", { hasText: "记账" }).first().click();
 await page.waitForTimeout(500);
 check("一句话记账输入框", (await page.locator("input[placeholder*='昨天打车']").count()) === 1);
 check("快捷动作 5 个", (await page.locator("button", { hasText: /(记支出|记收入|导入账单|管理持仓|添加负债)/ }).count()) >= 5);
+check("快捷动作含添加目标", (await page.locator("button", { hasText: "添加目标" }).count()) >= 1);
 check("我的账本区", (await page.getByText("我的账本").count()) > 0);
 check("账本含订阅 tab", (await page.locator("button", { hasText: /^订阅/ }).count()) > 0);
+check("账本含目标 tab", (await page.locator("button", { hasText: /^目标/ }).count()) > 0);
 check("支出表单默认收起", (await page.getByText("记一笔支出").count()) === 0);
 await page.locator("button", { hasText: "记支出" }).click();
 await page.waitForTimeout(300);
 check("点记支出后出现表单", (await page.getByText("记一笔支出").count()) > 0);
 
+// —— 目标 tab：进度列表（有数据）或空态引导 ——
+await page.locator("button", { hasText: /^目标/ }).first().click();
+await page.waitForTimeout(400);
+const goalsTxt = await page.locator("main").innerText();
+check("目标 tab 有内容", /应急金|买房|目标|建议月存|还没有财务目标/.test(goalsTxt));
+check("目标 tab 有进度或空态", /%|还没有财务目标/.test(goalsTxt));
+
 // —— 设置页（分界面导航：入口在侧栏底部，7 个子界面逐个点检）——
 await page.locator("aside button", { hasText: "设置" }).first().click();
 await page.waitForTimeout(500);
-const menuNames = ["偏好", "账本规则", "预算", "AI 回答", "每日晨报", "数据与状态", "访问口令"];
+const menuNames = ["偏好", "账本规则", "预算", "AI 回答", "每日晨报", "长期记忆", "数据与状态", "访问口令"];
 let settingsText = "";
 let reportCollapsed = false;
 for (const m of menuNames) {
@@ -155,9 +173,22 @@ check("设置含偏好", settingsText.includes("偏好"));
 check("设置含账本规则", settingsText.includes("账本规则"));
 check("设置含预算", settingsText.includes("预算"));
 check("设置含 AI 数据出机提示", settingsText.includes("发送到你配置的模型服务商"));
+check("设置含长期记忆", settingsText.includes("长期记忆"));
 check("设置含数据与状态", settingsText.includes("数据与状态"));
 check("设置含访问口令", settingsText.includes("访问口令"));
 check("晨报历史默认折叠", reportCollapsed);
+
+// —— 长期记忆：设置页内新增一条并删除（自清理，不留脏数据）——
+const memText = `UI 冒烟记忆 ${Date.now()}`;
+await page.locator("main nav:visible button", { hasText: "长期记忆" }).first().click();
+await page.waitForTimeout(350);
+await page.locator("main input").fill(memText);
+await page.locator("main button", { hasText: "记住" }).click();
+await page.waitForTimeout(600);
+check("记忆新增后出现在列表", (await page.getByText(memText).count()) > 0);
+await page.locator("main li", { hasText: memText }).locator("button[aria-label*='删除记忆']").click();
+await page.waitForTimeout(600);
+check("记忆可删除", (await page.getByText(memText).count()) === 0);
 
 // —— 应用内确认框（Radix Dialog，替代 window.confirm）：只验证弹出与取消，绝不确认 ——
 await page.locator("main nav:visible button", { hasText: "数据与状态" }).first().click();
@@ -188,9 +219,12 @@ await emptyPage.route("**/api/dashboard", async (route) => {
   await route.fulfill({ status: res.status(), headers, body: JSON.stringify(json) });
 });
 await gotoDashboard(emptyPage);
-const emptyTxt = await emptyPage.locator("main").innerText();
+const emptyMain = emptyPage.locator("main");
+const emptyTxt = await emptyMain.innerText();
 check("空数据仪表盘显示引导文案", /记下第一笔|还没有.*数据|先去记账/.test(emptyTxt));
-check("空数据仪表盘不显示总资产卡", (await emptyPage.getByText("总资产").count()) === 0);
+// 只查 main 区域：侧栏会话历史里可能残留此前问答（如「总资产是多少」），
+// 那是历史记录不是统计卡，不能算作零值卡泄漏。
+check("空数据仪表盘不显示总资产卡", (await emptyMain.getByText("总资产").count()) === 0);
 check("空数据仪表盘无风险横幅", (await emptyPage.getByText(/发现 \d+ 项需关注|未发现明显风险项/).count()) === 0);
 check("空数据引导含「去记账」入口", (await emptyPage.getByText("去记账").count()) > 0);
 await emptyPage.close();

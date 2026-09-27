@@ -45,8 +45,42 @@ export interface EmergencyInfo {
   ok: boolean;
 }
 
+export interface Goal {
+  name: string;
+  target: number;
+  saved: number;
+  pct: number;
+  gap: number;
+  deadline: string;
+  months_left: number | null;
+  monthly_suggest: number | null;
+  done: boolean;
+}
+
+export interface MemoryItem {
+  id: number;
+  content: string;
+  kind: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HealthReport {
+  score: number;
+  summary: string;
+  dimensions: {
+    key: string;
+    title: string;
+    status: "good" | "warn" | "bad";
+    detail: string;
+    suggestion: string;
+  }[];
+  flags: string[];
+}
+
 export interface DashboardData {
   positions: Position[];
+  goals: Goal[];
   totals: {
     total_market_value: number;
     total_cost: number;
@@ -90,6 +124,8 @@ export interface RunRecord {
   route?: string;
   llm?: string;
   route_reason?: string;
+  /** 本轮调用过的工具（agent 模式落库） */
+  tools?: string[];
 }
 
 export interface SessionItem {
@@ -146,6 +182,14 @@ export interface BootstrapData {
   source: DashboardData["source"];
 }
 
+export interface AgentToolStep {
+  /** 工具名（get_market_view 等） */
+  name: string;
+  args: Record<string, unknown>;
+  /** 给用户看的结果摘要 */
+  summary: string;
+}
+
 export interface AnswerMeta {
   answer: string;
   level: string;
@@ -155,11 +199,14 @@ export interface AnswerMeta {
   flags: RiskFlag[];
   /** 回答生成来源；历史记录未存来源时为 undefined（不渲染徽标） */
   llm?: "llm" | "template";
+  /** 本轮调用过的工具（agent 模式） */
+  tools?: string[];
 }
 
 export type AskEvent =
   | { type: "start"; question: string }
   | { type: "step"; id: string; label: string; detail: string; phase: string }
+  | { type: "agent_step"; name: string; args: Record<string, unknown>; summary: string }
   | { type: "text"; delta: string }
   | {
       type: "final";
@@ -170,6 +217,7 @@ export type AskEvent =
       metrics: Record<string, number>;
       flags: RiskFlag[];
       llm: "llm" | "template";
+      tools?: string[];
     }
   | { type: "error"; message: string }
   | { type: "done" };

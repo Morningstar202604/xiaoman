@@ -23,7 +23,7 @@ export function Segmented<T extends string>({
             "rounded-md font-medium transition-colors",
             size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm",
             value === o.value
-              ? "bg-card text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
           )}
         >

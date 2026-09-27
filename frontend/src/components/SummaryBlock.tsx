@@ -44,6 +44,9 @@ export function SummaryBlock({ meta }: { meta: AnswerMeta }) {
               {meta.llm === "llm" ? "模型作答" : "由确定性规则算出"}
             </span>
           )}
+          {meta.tools && meta.tools.length > 0 && (
+            <span className="text-xs text-muted-foreground">调用 {meta.tools.length} 个工具</span>
+          )}
         </div>
       )}
       {hasChips && (

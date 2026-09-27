@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Sparkles, FileUp, Landmark, Repeat, Wallet } from "lucide-react";
+import { Plus, Trash2, Sparkles, FileUp, Landmark, Repeat, Search, Target, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { store as appStore } from "@/lib/store";
 import { fmtMoney } from "@/lib/format";
 import { PositionsTable } from "@/components/PositionsTable";
+import { GoalsPanel, GoalsList } from "@/components/GoalsPanel";
 
 const KIND_OPTIONS = ["股票", "ETF", "基金", "现金", "其他"];
 const CATEGORY_OPTIONS = ["收入", "餐饮", "居住", "交通", "购物", "订阅", "投资", "还款", "其他"];
@@ -437,13 +438,65 @@ function DebtForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ListTab = "transactions" | "positions" | "debts" | "subscriptions";
-type Panel = "expense" | "income" | "import" | "position" | "debt" | null;
+function SubscriptionForm({ onDone }: { onDone: () => void }) {
+  const [f, setF] = useState({ name: "", monthly: "", dueDay: "", note: "" });
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setErr("");
+    try {
+      await api("/api/subscriptions", {
+        method: "POST",
+        body: JSON.stringify({
+          name: f.name.trim(),
+          monthly: Number(f.monthly),
+          due_day: f.dueDay.trim(),
+          note: f.note.trim(),
+        }),
+      });
+      setF({ name: "", monthly: "", dueDay: "", note: "" });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
+        <div>
+          <label className={labelCls}>名称</label>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Netflix / 云盘会员" />
+        </div>
+        <div>
+          <label className={labelCls}>月支出（元）</label>
+          <input className={inputCls} type="number" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} placeholder="68" />
+        </div>
+        <div>
+          <label className={labelCls}>每月扣款日（几号，可留空）</label>
+          <input className={inputCls} type="number" min="1" max="31" value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: e.target.value })} placeholder="5" />
+        </div>
+        <div>
+          <label className={labelCls}>备注（可留空）</label>
+          <input className={inputCls} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="家庭共用" />
+        </div>
+      </div>
+      {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
+      <Button size="sm" onClick={() => void submit()} disabled={!f.name || !f.monthly}>
+        <Plus className="w-3.5 h-3.5" /> 添加订阅
+      </Button>
+    </div>
+  );
+}
+
+type ListTab = "transactions" | "positions" | "debts" | "subscriptions" | "goals";
+type Panel = "expense" | "income" | "import" | "position" | "debt" | "subscription" | "goal" | null;
 
 export function EntryView() {
   const { dashboard } = appStore.useApp();
   const [tab, setTab] = useState<ListTab>("transactions");
   const [panel, setPanel] = useState<Panel>(null);
+  const [txQuery, setTxQuery] = useState("");
 
   const actions: { id: Panel; label: string; icon: React.ReactNode }[] = [
     { id: "expense", label: "记支出", icon: <Plus className="w-3.5 h-3.5" /> },
@@ -451,6 +504,8 @@ export function EntryView() {
     { id: "import", label: "导入账单", icon: <FileUp className="w-3.5 h-3.5" /> },
     { id: "position", label: "管理持仓", icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: "debt", label: "添加负债", icon: <Landmark className="w-3.5 h-3.5" /> },
+    { id: "subscription", label: "添加订阅", icon: <Repeat className="w-3.5 h-3.5" /> },
+    { id: "goal", label: "添加目标", icon: <Target className="w-3.5 h-3.5" /> },
   ];
 
   const tabs: { id: ListTab; label: string; count?: number }[] = [
@@ -458,7 +513,19 @@ export function EntryView() {
     { id: "positions", label: "持仓", count: dashboard?.positions.length },
     { id: "debts", label: "负债", count: dashboard?.debts.items.length },
     { id: "subscriptions", label: "订阅", count: dashboard?.subscriptions.items.length },
+    { id: "goals", label: "目标", count: dashboard?.goals.length },
   ];
+
+  // 流水本地搜索：名称/分类/日期 任一命中
+  const txQueryL = txQuery.trim().toLowerCase();
+  const txRows = (dashboard?.transactions ?? []).filter((t) => {
+    if (!txQueryL) return true;
+    return (
+      t.item.toLowerCase().includes(txQueryL) ||
+      t.category.toLowerCase().includes(txQueryL) ||
+      t.date.includes(txQueryL)
+    );
+  });
 
   const openPanel = (id: Panel) => setPanel((cur) => (cur === id ? null : id));
 
@@ -502,6 +569,16 @@ export function EntryView() {
           <DebtForm onDone={() => appStore.bump()} />
         </Section>
       )}
+      {panel === "subscription" && (
+        <Section title="添加订阅">
+          <SubscriptionForm onDone={() => appStore.bump()} />
+        </Section>
+      )}
+      {panel === "goal" && (
+        <Section title="添加目标">
+          <GoalsPanel onDone={() => appStore.bump()} />
+        </Section>
+      )}
 
       {/* 列表管理：流水 / 持仓 / 负债 / 订阅 */}
       <Section
@@ -528,34 +605,49 @@ export function EntryView() {
       >
         {tab === "transactions" && (
           dashboard && dashboard.transactions.length > 0 ? (
-            <div className="max-h-96 overflow-y-auto scroll-thin">
-              {dashboard.transactions.slice(0, 100).map((t) => (
-                <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
-                  <span className="min-w-0">
-                    <span className="truncate">{t.item}</span>
-                    <span className="text-muted-foreground text-xs ml-2">{t.date} · {t.category}</span>
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className={`tabular-nums ${t.amount > 0 ? "text-up" : "text-down"}`}>
-                      {fmtMoney(t.amount, true)}
+            <div>
+              {/* 流水搜索：本地过滤，不打接口 */}
+              <div className="relative mb-2">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  className="w-full rounded-lg border border-input bg-background pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={txQuery}
+                  onChange={(e) => setTxQuery(e.target.value)}
+                  placeholder="搜索名称 / 分类 / 日期"
+                />
+              </div>
+              <div className="max-h-80 overflow-y-auto scroll-thin">
+                {txRows.slice(0, 200).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
+                    <span className="min-w-0">
+                      <span className="truncate">{t.item}</span>
+                      <span className="text-muted-foreground text-xs ml-2">{t.date} · {t.category}</span>
                     </span>
-                    <button
-                      className="text-muted-foreground hover:text-red-600"
-                      onClick={() => {
-                        void api(`/api/transactions/${t.id}`, { method: "DELETE" }).then(() => appStore.bump());
-                      }}
-                      aria-label={`删除 ${t.item}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                </div>
-              ))}
-              {dashboard.transactions.length > 100 && (
-                <div className="py-2 text-center text-xs text-muted-foreground">
-                  仅显示最近 100 条，共 {dashboard.transactions.length} 条
-                </div>
-              )}
+                    <span className="flex items-center gap-2">
+                      <span className={`tabular-nums ${t.amount > 0 ? "text-up" : "text-down"}`}>
+                        {fmtMoney(t.amount, true)}
+                      </span>
+                      <button
+                        className="text-muted-foreground hover:text-red-600"
+                        onClick={() => {
+                          void api(`/api/transactions/${t.id}`, { method: "DELETE" }).then(() => appStore.bump());
+                        }}
+                        aria-label={`删除 ${t.item}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                ))}
+                {txRows.length === 0 && (
+                  <div className="py-4 text-center text-xs text-muted-foreground">没有匹配「{txQuery}」的流水</div>
+                )}
+                {txQueryL === "" && dashboard.transactions.length > 200 && (
+                  <div className="py-2 text-center text-xs text-muted-foreground">
+                    仅显示最近 200 条，共 {dashboard.transactions.length} 条
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="py-6 text-center text-sm text-muted-foreground">
@@ -636,7 +728,18 @@ export function EntryView() {
                       {s.name}
                       {s.due_day && <span className="text-xs text-muted-foreground ml-1.5">{s.due_day} 号扣</span>}
                     </span>
-                    <span className="tabular-nums text-muted-foreground">{fmtMoney(s.monthly)}/月</span>
+                    <span className="flex items-center gap-2">
+                      <span className="tabular-nums text-muted-foreground">{fmtMoney(s.monthly)}/月</span>
+                      <button
+                        className="text-muted-foreground hover:text-red-600"
+                        onClick={() => {
+                          void api(`/api/subscriptions/${encodeURIComponent(s.name)}`, { method: "DELETE" }).then(() => appStore.bump());
+                        }}
+                        aria-label={`删除订阅 ${s.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -644,8 +747,13 @@ export function EntryView() {
               <div className="py-6 text-center text-sm text-muted-foreground">无订阅记录</div>
             )}
             <div className="mt-3 text-[11px] text-muted-foreground">
-              订阅目前只读展示，月支出合计 {fmtMoney(dashboard?.subscriptions.monthly_total ?? 0)}。
+              订阅月支出合计 {fmtMoney(dashboard?.subscriptions.monthly_total ?? 0)}，会纳入账本结余与近期待扣提醒。
             </div>
+          </div>
+        )}
+        {tab === "goals" && (
+          <div>
+            <GoalsList goals={dashboard?.goals ?? []} onDone={() => appStore.bump()} />
           </div>
         )}
       </Section>

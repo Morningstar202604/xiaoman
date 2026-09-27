@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, NotebookPen, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, HeartPulse, NotebookPen, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { store } from "@/lib/store";
 import { fmtMoney, fmtPct, fmtMonth } from "@/lib/format";
 import { PositionsTable } from "@/components/PositionsTable";
+import { HealthCheckDialog } from "@/components/HealthCheckDialog";
 import type { DashboardData, TrendMonth, BudgetUsage } from "@/lib/types";
 
 function StatCell({
@@ -330,6 +331,53 @@ function BudgetCard() {
   );
 }
 
+/** 目标卡：前 3 个目标进度 + 财务体检入口；无目标时只留体检按钮 */
+function GoalsCard({ goals, net }: { goals: DashboardData["goals"]; net: number }) {
+  const [healthOpen, setHealthOpen] = useState(false);
+  const top = goals.filter((g) => !g.done).slice(0, 3);
+
+  return (
+    <Card className="p-[var(--card-pad)]">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">财务目标</div>
+        <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => setHealthOpen(true)}>
+          <HeartPulse className="w-3.5 h-3.5" /> 财务体检
+        </Button>
+      </div>
+      {top.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          {goals.length > 0
+            ? "所有目标都已达成。"
+            : "设一个目标（记账页 → 添加目标），体检会给出建议月存。"}
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2.5">
+          {top.map((g) => (
+            <div key={g.name}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="truncate pr-2">{g.name}</span>
+                <span className="tabular-nums text-muted-foreground shrink-0">{g.pct}%</span>
+              </div>
+              <div className="mt-1 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${g.pct >= 100 ? "bg-down" : g.pct >= 50 ? "bg-primary" : "bg-amber-500"}`}
+                  style={{ width: `${Math.min(100, g.pct)}%` }}
+                />
+              </div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                {fmtMoney(g.saved, false)} / {fmtMoney(g.target, false)}
+                {g.monthly_suggest != null && ` · 建议月存 ${fmtMoney(g.monthly_suggest, false)}`}
+                {g.gap > 0 && net > 0 && ` · 按当前结余约 ${Math.max(1, Math.ceil(g.gap / net))} 个月达成`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <HealthCheckDialog open={healthOpen} onOpenChange={setHealthOpen} />
+    </Card>
+  );
+}
+
 export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
   const { dashboard, loading, bootstrap, refreshTick } = store.useApp();
   const [trend, setTrend] = useState<TrendMonth[] | null>(null);
@@ -422,6 +470,9 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
 
       {/* 本月预算（设置后显示） */}
       <BudgetCard />
+
+      {/* 财务目标 + 体检入口 */}
+      <GoalsCard goals={dashboard.goals ?? []} net={dashboard.cashflow.net} />
 
       {/* 需要注意的事：待扣款 + 风险，一眼看完 */}
       <div className="space-y-3">

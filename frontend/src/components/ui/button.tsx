@@ -5,7 +5,7 @@ type Variant = "default" | "secondary" | "outline" | "ghost" | "destructive";
 type Size = "default" | "sm" | "lg" | "icon";
 
 const variantStyles: Record<Variant, string> = {
-  default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+  default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs",
   secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
   outline: "border border-border bg-transparent hover:bg-accent hover:text-accent-foreground",
   ghost: "hover:bg-accent hover:text-accent-foreground",

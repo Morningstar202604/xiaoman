@@ -8,6 +8,7 @@ import { EntryView } from "@/components/EntryView";
 import { SettingsView } from "@/components/SettingsView";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm";
+import { PasswordDialog } from "@/components/ui/password-dialog";
 import { store } from "@/lib/store";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
@@ -243,6 +244,9 @@ export default function App() {
           if (t) void deleteSession(t.id, t.threadId);
         }}
       />
+
+      {/* 访问口令：401 时应用内输入，替代原生 prompt */}
+      <PasswordDialog />
     </div>
       </TooltipProvider>
     </MotionConfig>

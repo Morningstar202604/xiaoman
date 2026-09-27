@@ -1,0 +1,9 @@
+# Docker 构建上下文排除（避免把本地依赖/数据打进镜像上下文）
+.git
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+backend/data
+docs
+*.log
