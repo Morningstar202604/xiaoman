@@ -1,4 +1,4 @@
-# 随身理财公司 · 后端依赖（重构后：轻量、无重型编排框架）
+# 随身理财公司 · 后端依赖（FastAPI + LangGraph 编排 + 确定性内核）
 fastapi>=0.115
 uvicorn[standard]>=0.32
 aiosqlite>=0.22          # 异步 SQLite，不阻塞事件循环
@@ -13,3 +13,4 @@ pydantic>=2.13           # 请求体校验（FastAPI 自带依赖，显式登记
 pytest>=8.0
 pytest-asyncio>=0.24
 ruff>=0.8
+langgraph>=1.0

@@ -14,7 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from . import db, service
 
-REPORT_QUESTION = "生成今日晨报：汇总我的组合现状与账本概况，只描述事实与风险提示，不给操作建议。"
+REPORT_QUESTION = "生成今日晨报：帮我体检并汇总组合、账本与财务目标的现状，只描述事实与风险提示，不给操作建议。"
 
 _sched: AsyncIOScheduler | None = None
 _state: dict[str, Any] = {

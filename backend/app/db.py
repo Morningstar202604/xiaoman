@@ -187,13 +187,28 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at    TEXT NOT NULL,
     route         TEXT NOT NULL DEFAULT '',
     llm           TEXT NOT NULL DEFAULT '',
-    route_reason  TEXT NOT NULL DEFAULT ''
+    route_reason  TEXT NOT NULL DEFAULT '',
+    tools         TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id, id);
 CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     thread_id  TEXT UNIQUE NOT NULL,
     title      TEXT NOT NULL DEFAULT '新会话',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS goals (
+    name       TEXT PRIMARY KEY,
+    target     REAL NOT NULL,
+    saved      REAL NOT NULL DEFAULT 0,
+    deadline   TEXT NOT NULL DEFAULT '',   -- 目标月份 YYYY-MM（'' 未设）
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_memory (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    content    TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'fact', -- fact / preference / goal_related
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -236,6 +251,7 @@ async def _migrate_add_columns() -> None:
             "route": "TEXT NOT NULL DEFAULT ''",
             "llm": "TEXT NOT NULL DEFAULT ''",
             "route_reason": "TEXT NOT NULL DEFAULT ''",
+            "tools": "TEXT NOT NULL DEFAULT ''",
         },
     }
     for table, adds in cols.items():
@@ -524,6 +540,175 @@ async def delete_debt(name: str) -> dict[str, Any]:
     return {"ok": True, "deleted": cur.rowcount}
 
 
+async def add_subscription(s: dict[str, Any]) -> dict[str, Any]:
+    conn = await _conn()
+    clean = {
+        "name": str(s.get("name", "")).strip(),
+        "monthly": float(s.get("monthly", 0) or 0),
+        "note": str(s.get("note", "")).strip(),
+        "due_day": _clean_due_day(s.get("due_day", "")),
+    }
+    if not clean["name"]:
+        raise ValueError("名称不能为空")
+    if clean["monthly"] <= 0:
+        raise ValueError("月支出需大于 0")
+    await conn.execute(
+        "INSERT INTO subscriptions(name,monthly,note,due_day) VALUES(:name,:monthly,:note,:due_day)"
+        " ON CONFLICT(name) DO UPDATE SET monthly=excluded.monthly,"
+        " note=excluded.note, due_day=excluded.due_day",
+        clean,
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "name": clean["name"]}
+
+
+async def delete_subscription(name: str) -> dict[str, Any]:
+    conn = await _conn()
+    cur = await conn.execute("DELETE FROM subscriptions WHERE name=?", (name,))
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "deleted": cur.rowcount}
+
+
+# --------------------------------------------------------------------------
+# 财务目标（goals）
+# --------------------------------------------------------------------------
+
+
+async def list_goals() -> list[dict[str, Any]]:
+    return await fetch_all("SELECT * FROM goals ORDER BY created_at DESC, name")
+
+
+async def add_goal(g: dict[str, Any]) -> dict[str, Any]:
+    """新增目标。字段：name / target / saved（可选）/ deadline（可选，YYYY-MM）。"""
+    name = str(g.get("name") or "").strip()[:40]
+    if not name:
+        raise ValueError("目标名称必填")
+    try:
+        target = float(g.get("target", 0) or 0)
+    except (TypeError, ValueError):
+        raise ValueError("目标金额不合法") from None
+    if target <= 0:
+        raise ValueError("目标金额需大于 0")
+    try:
+        saved = max(0.0, float(g.get("saved", 0) or 0))
+    except (TypeError, ValueError):
+        saved = 0.0
+    deadline = str(g.get("deadline") or "").strip()[:7]
+    conn = await _conn()
+    await conn.execute(
+        "INSERT INTO goals(name,target,saved,deadline,created_at)"
+        " VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET"
+        " target=excluded.target, saved=excluded.saved, deadline=excluded.deadline",
+        (name, target, saved, deadline, datetime.now().astimezone().isoformat(timespec="seconds")),
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "name": name, "target": target, "saved": saved, "deadline": deadline}
+
+
+async def update_goal(name: str, patch: dict[str, Any]) -> dict[str, Any]:
+    """更新目标的部分字段（target/saved/deadline）。"""
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("目标名称必填")
+    fields: list[str] = []
+    params: list[Any] = []
+    for key in ("target", "saved", "deadline"):
+        if key not in patch:
+            continue
+        if key == "deadline":
+            v = str(patch[key] or "").strip()[:7]
+        else:
+            try:
+                v = float(patch[key])
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} 不合法") from None
+            if key == "target" and v <= 0:
+                raise ValueError("目标金额需大于 0")
+            if key == "saved":
+                v = max(0.0, v)
+        fields.append(f"{key}=?")
+        params.append(v)
+    if not fields:
+        raise ValueError("没有可更新的字段")
+    conn = await _conn()
+    cur = await conn.execute(
+        f"UPDATE goals SET {', '.join(fields)} WHERE name=?", [*params, name]
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    if cur.rowcount == 0:
+        raise ValueError("目标不存在")
+    return {"ok": True, "name": name}
+
+
+async def delete_goal(name: str) -> dict[str, Any]:
+    conn = await _conn()
+    cur = await conn.execute("DELETE FROM goals WHERE name=?", (name,))
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "deleted": cur.rowcount}
+
+
+# --------------------------------------------------------------------------
+# 长期记忆（user_memory：agent 记住用户长期信息）
+# --------------------------------------------------------------------------
+
+
+async def list_memory() -> list[dict[str, Any]]:
+    return await fetch_all("SELECT * FROM user_memory ORDER BY updated_at DESC, id DESC")
+
+
+async def add_memory(content: str, kind: str = "fact") -> dict[str, Any]:
+    """写入一条长期记忆；内容完全相同则只刷新时间戳（天然去重）。"""
+    content = str(content or "").strip()
+    if not content:
+        raise ValueError("记忆内容不能为空")
+    if len(content) > 500:
+        content = content[:500]
+    kind = str(kind or "fact").strip()[:20] or "fact"
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    conn = await _conn()
+    cur = await conn.execute(
+        "SELECT id FROM user_memory WHERE content=? LIMIT 1", (content,)
+    )
+    row = await cur.fetchone()
+    if row:
+        await conn.execute(
+            "UPDATE user_memory SET updated_at=?, kind=? WHERE id=?",
+            (now, kind, row["id"]),
+        )
+        await conn.commit()
+        return {"ok": True, "id": row["id"], "deduped": True}
+    await conn.execute(
+        "INSERT INTO user_memory(content,kind,created_at,updated_at) VALUES(?,?,?,?)",
+        (content, kind, now, now),
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    cur = await conn.execute("SELECT last_insert_rowid() AS id")
+    row = await cur.fetchone()
+    return {"ok": True, "id": row["id"]}
+
+
+async def delete_memory(mem_id: int) -> dict[str, Any]:
+    conn = await _conn()
+    cur = await conn.execute("DELETE FROM user_memory WHERE id=?", (mem_id,))
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "deleted": cur.rowcount}
+
+
+async def clear_memory() -> dict[str, Any]:
+    conn = await _conn()
+    cur = await conn.execute("DELETE FROM user_memory")
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "deleted": cur.rowcount}
+
+
 async def set_setting(key: str, value: str) -> dict[str, Any]:
     conn = await _conn()
     await conn.execute(
@@ -556,12 +741,13 @@ async def save_run(
     route: str = "",
     llm: str = "",
     route_reason: str = "",
+    tools: list[str] | None = None,
 ) -> dict[str, Any]:
     conn = await _conn()
     created = datetime.now().astimezone().isoformat(timespec="seconds")
     cur = await conn.execute(
-        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason)"
-        " VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason,tools)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?)",
         (
             thread_id or "default",
             question,
@@ -572,6 +758,7 @@ async def save_run(
             route or "",
             llm or "",
             route_reason or "",
+            json.dumps(tools or [], ensure_ascii=False),
         ),
     )
     await conn.commit()
@@ -625,6 +812,10 @@ async def list_runs(
             r["flags"] = json.loads(r.pop("flags_json") or "[]")
         except Exception:
             r["flags"] = []
+        try:
+            r["tools"] = json.loads(r.pop("tools") or "[]")
+        except Exception:
+            r["tools"] = []
     return rows
 
 
@@ -709,13 +900,17 @@ def uuid_hex() -> str:
 
 
 async def export_data() -> dict[str, Any]:
-    """全量导出（备份）：持仓 / 流水 / 订阅 / 负债 / 预算 / 设置 / 会话 / 问答。"""
+    """全量导出（备份）：持仓 / 流水 / 订阅 / 负债 / 预算 / 目标 / 长期记忆 / 设置 / 会话 / 问答。"""
     runs = await fetch_all("SELECT * FROM runs ORDER BY id")
     for r in runs:
         try:
             r["flags"] = json.loads(r.pop("flags_json") or "[]")
         except Exception:
             r["flags"] = []
+        try:
+            r["tools"] = json.loads(r.pop("tools") or "[]")
+        except Exception:
+            r["tools"] = []
     settings = await get_settings()
     # 备份文件可能被分享/上传：AI Key 不落明文（恢复时在设置页重新填写）
     if settings.get("ai_api_key"):
@@ -728,6 +923,8 @@ async def export_data() -> dict[str, Any]:
         "subscriptions": await list_subscriptions(),
         "debts": await list_debts(),
         "budgets": await fetch_all("SELECT * FROM budgets ORDER BY month, category"),
+        "goals": await fetch_all("SELECT * FROM goals ORDER BY name"),
+        "memory": await fetch_all("SELECT * FROM user_memory ORDER BY id"),
         "settings": settings,
         "sessions": await list_sessions(),
         "runs": runs,
@@ -745,3 +942,124 @@ async def monthly_trend(months: int = 6) -> list[dict[str, Any]]:
         (int(months),),
     )
     return [dict(r) for r in reversed(rows)]
+
+
+# --------------------------------------------------------------------------
+# 备份恢复（导入导出配套；AI Key 不恢复，需重新在设置页填写）
+# --------------------------------------------------------------------------
+
+
+async def import_backup(data: dict[str, Any]) -> dict[str, int]:
+    """把 export_data() 的 JSON 恢复进库：先清空业务表再写入。
+
+    返回各表写入条数。settings 跳过 ai_api_key（安全），其余按 key 覆盖。
+    """
+    conn = await _conn()
+    counts: dict[str, int] = {}
+    try:
+        for t in ("positions", "transactions", "subscriptions", "debts", "budgets", "goals", "user_memory", "runs", "sessions"):
+            await conn.execute(f"DELETE FROM {t}")
+
+        counts["positions"] = await _restore_table(
+            conn, "positions", data.get("positions"),
+            "INSERT INTO positions(symbol,name,kind,industry,shares,cost,last,buy_date,fee)"
+            " VALUES(:symbol,:name,:kind,:industry,:shares,:cost,:last,:buy_date,:fee)",
+        )
+        counts["transactions"] = await _restore_table(
+            conn, "transactions", data.get("transactions"),
+            "INSERT INTO transactions(date,item,category,amount) VALUES(:date,:item,:category,:amount)",
+        )
+        counts["subscriptions"] = await _restore_table(
+            conn, "subscriptions", data.get("subscriptions"),
+            "INSERT INTO subscriptions(name,monthly,note,due_day) VALUES(:name,:monthly,:note,:due_day)",
+        )
+        counts["debts"] = await _restore_table(
+            conn, "debts", data.get("debts"),
+            "INSERT INTO debts(name,monthly,balance,rate,due_day) VALUES(:name,:monthly,:balance,:rate,:due_day)",
+        )
+        counts["budgets"] = await _restore_table(
+            conn, "budgets", data.get("budgets"),
+            "INSERT INTO budgets(month,category,amount) VALUES(:month,:category,:amount)",
+        )
+        counts["goals"] = await _restore_table(
+            conn, "goals", data.get("goals"),
+            "INSERT INTO goals(name,target,saved,deadline,created_at)"
+            " VALUES(:name,:target,:saved,:deadline,:created_at)",
+        )
+        counts["memory"] = await _restore_table(
+            conn, "user_memory", data.get("memory"),
+            "INSERT INTO user_memory(content,kind,created_at,updated_at)"
+            " VALUES(:content,:kind,:created_at,:updated_at)",
+        )
+
+        # 设置：整表覆盖，但 AI Key 永不恢复（明文 Key 不进备份/恢复链路）
+        settings = (data.get("settings") or {})
+        if isinstance(settings, dict):
+            await conn.execute("DELETE FROM settings")
+            await conn.executemany(
+                "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
+                [(k, str(v)) for k, v in settings.items() if k != "ai_api_key"],
+            )
+            await _ensure_defaults()
+            await _mark_user_data(conn)
+            counts["settings"] = len(settings) - (1 if "ai_api_key" in settings else 0)
+
+        # 会话与问答历史：整体恢复（tools/flags 原样保留）
+        sessions = data.get("sessions") or []
+        for s in sessions:
+            if not isinstance(s, dict) or not s.get("thread_id"):
+                continue
+            await conn.execute(
+                "INSERT OR IGNORE INTO sessions(thread_id,title,created_at,updated_at)"
+                " VALUES(?,?,?,?)",
+                (s["thread_id"], str(s.get("title") or "新会话")[:40], s.get("created_at") or "", s.get("updated_at") or ""),
+            )
+        counts["sessions"] = len(sessions)
+        runs = data.get("runs") or []
+        for r in runs:
+            if not isinstance(r, dict) or not r.get("question"):
+                continue
+            await conn.execute(
+                "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason,tools)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    r.get("thread_id") or "default",
+                    str(r.get("question") or "")[:500],
+                    str(r.get("answer") or ""),
+                    str(r.get("level") or ""),
+                    json.dumps(r.get("flags") or [], ensure_ascii=False),
+                    r.get("created_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+                    str(r.get("route") or ""),
+                    str(r.get("llm") or ""),
+                    str(r.get("route_reason") or ""),
+                    json.dumps(r.get("tools") or [], ensure_ascii=False),
+                ),
+            )
+        counts["runs"] = len(runs)
+
+        await conn.commit()
+    except Exception:  # noqa: BLE001 — 恢复失败整体回滚，不留半截状态
+        await conn.rollback()
+        raise
+    return counts
+
+
+async def _restore_table(
+    conn: aiosqlite.Connection,
+    name: str,
+    rows: Any,
+    sql: str,
+) -> int:
+    """把备份列表写回指定表；坏行跳过不影响整体。"""
+    if not isinstance(rows, list):
+        return 0
+    n = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            await conn.execute(sql, row)
+            n += 1
+        except Exception:  # noqa: BLE001 — 单行失败跳过
+            continue
+    return n

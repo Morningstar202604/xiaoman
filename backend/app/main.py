@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, db, llm, scheduler, service
+from . import analysis, db, llm, quotes, scheduler, service
 from .quotes import invalidate_quotes_cache
 
 log = logging.getLogger(__name__)
@@ -442,6 +442,109 @@ async def remove_debt(name: str) -> dict:
     return await db.delete_debt(name)
 
 
+@app.post("/api/subscriptions")
+async def create_subscription(payload: dict) -> dict:
+    try:
+        out = await db.add_subscription(payload or {})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return out
+
+
+@app.delete("/api/subscriptions/{name}")
+async def remove_subscription(name: str) -> dict:
+    out = await db.delete_subscription(name)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 财务目标（goals）
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/goals")
+async def goals_list() -> dict:
+    return {"goals": analysis.goal_progress(await db.list_goals())}
+
+
+@app.post("/api/goals")
+async def create_goal(payload: dict) -> dict:
+    try:
+        out = await db.add_goal(payload or {})
+    except Exception as exc:  # noqa: BLE001 — 坏输入回 400
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return out
+
+
+@app.put("/api/goals/{name}")
+async def update_goal(name: str, payload: dict) -> dict:
+    try:
+        out = await db.update_goal(name, payload or {})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return out
+
+
+@app.delete("/api/goals/{name}")
+async def remove_goal(name: str) -> dict:
+    return await db.delete_goal(name)
+
+
+# ---------------------------------------------------------------------------
+# 长期记忆（user_memory）
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/memory")
+async def memory_list() -> dict:
+    return {"memory": await db.list_memory()}
+
+
+@app.post("/api/memory")
+async def create_memory(payload: dict) -> dict:
+    try:
+        out = await db.add_memory(str((payload or {}).get("content") or "").strip())
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return out
+
+
+@app.delete("/api/memory/{mem_id}")
+async def remove_memory(mem_id: int) -> dict:
+    return await db.delete_memory(mem_id)
+
+
+@app.post("/api/memory/clear")
+async def clear_memory() -> dict:
+    return await db.clear_memory()
+
+
+# ---------------------------------------------------------------------------
+# 财务体检（health check）
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/health-check")
+async def health_check() -> dict:
+    positions = await db.list_positions()
+    # 空库保护与图内一致：没有任何持仓/流水时不给「分数体检」假象
+    if not positions and not await db.fetch_all("SELECT 1 FROM transactions LIMIT 1"):
+        return analysis.health_check(None, None, [], await db.list_goals())
+    live = await quotes.live_quotes(positions)
+    settings = await db.get_settings()
+    m = analysis.market_view(positions, live)
+    led = analysis.ledger_view(
+        await db.list_transactions(),
+        await db.list_subscriptions(),
+        await db.list_debts(),
+        settings,
+        positions,
+        live,
+    )
+    flags = analysis.risk_checks(m, led)
+    return analysis.health_check(m, led, flags, await db.list_goals())
+
+
 @app.post("/api/portfolio/reset")
 async def reset_portfolio() -> dict:
     out = await db.reset_to_seed()
@@ -635,6 +738,7 @@ async def ask(payload: dict):
                 route=result.get("route", ""),
                 llm=result.get("llm", ""),
                 route_reason=result.get("route_reason", ""),
+                tools=result.get("tools") or [],
             )
         except Exception:  # noqa: BLE001 — 落库失败不打断交付
             log.exception("save_run failed")
@@ -648,6 +752,7 @@ async def ask(payload: dict):
                 "metrics": result["metrics"],
                 "flags": result["flags"],
                 "llm": result["llm"],
+                "tools": result.get("tools") or [],
             }
         )
 
@@ -695,13 +800,63 @@ async def delete_session(session_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 数据导出 / 月度趋势
+# 数据导出 / 导入恢复 / 月度趋势
 # ---------------------------------------------------------------------------
 
 
 @app.get("/api/export")
 async def export_data() -> dict:
     return await db.export_data()
+
+
+@app.post("/api/import/backup")
+async def import_backup(payload: dict) -> dict:
+    """从 /api/export 的 JSON 恢复全量数据（AI Key 除外，需重新填写）。"""
+    data = payload or {}
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "备份格式不正确"}, status_code=400)
+    version = str((data.get("meta") or {}).get("version") or data.get("version") or "")
+    if not (version.startswith("wealth-office-v") or version == "2"):
+        return JSONResponse({"error": f"备份格式不被识别（version={version or '空'}）"}, status_code=400)
+    try:
+        counts = await db.import_backup(data)
+    except Exception as exc:  # noqa: BLE001 — 恢复失败要回滚并给可读错误
+        log.exception("import backup failed")
+        return JSONResponse({"error": f"恢复失败，数据已回滚：{exc}"}, status_code=400)
+    await invalidate_quotes_cache()
+    return {"ok": True, "counts": counts}
+
+
+@app.get("/api/export/csv")
+async def export_csv() -> StreamingResponse:
+    """流水导出为 CSV（带 BOM，Excel 直接打开不乱码）。"""
+    import csv
+    import io
+
+    rows = await db.list_transactions()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["日期", "项目", "分类", "金额"])
+    for r in rows:
+        writer.writerow([r["date"], r["item"], r["category"], r["amount"]])
+    data = "\ufeff" + buf.getvalue()
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="ledger.csv"'},
+    )
+
+
+@app.get("/api/kline")
+async def kline(symbol: str, period: str = "daily", limit: int = 120) -> dict:
+    """某标的 K 线（A股/ETF）。period: daily/weekly/monthly。"""
+    try:
+        out = await quotes.kline(symbol, period, max(10, min(limit, 500)))
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    if not out:
+        return JSONResponse({"error": f"无法获取 {symbol} 行情"}, status_code=404)
+    return out
 
 
 @app.get("/api/trend")

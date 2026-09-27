@@ -601,6 +601,100 @@ async def test_debt_due_day(client) -> None:
     assert item2["due_day"] == ""
 
 
+async def test_subscriptions_crud(client) -> None:
+    """订阅增删：新增入账、dashboard 汇总、非法值 400、删除后消失。"""
+    r = await client.post(
+        "/api/subscriptions",
+        json={"name": "Netflix", "monthly": 68, "note": "影音", "due_day": "5"},
+    )
+    assert r.status_code == 200 and r.json()["ok"]
+
+    d = (await client.get("/api/dashboard")).json()
+    item = next(x for x in d["subscriptions"]["items"] if x["name"] == "Netflix")
+    assert item["monthly"] == 68 and item["due_day"] == "5"
+
+    # 非法：空名称 / 负金额
+    r2 = await client.post("/api/subscriptions", json={"name": "", "monthly": 10})
+    assert r2.status_code == 400
+    r3 = await client.post("/api/subscriptions", json={"name": "x", "monthly": -1})
+    assert r3.status_code == 400
+
+    r4 = await client.delete("/api/subscriptions/Netflix")
+    assert r4.status_code == 200 and r4.json()["deleted"] == 1
+    d2 = (await client.get("/api/dashboard")).json()
+    assert all(x["name"] != "Netflix" for x in d2["subscriptions"]["items"])
+
+
+async def test_import_backup_roundtrip(client) -> None:
+    """备份恢复：导出 → 清空业务表 → 恢复 → 数据一致；AI Key 不恢复。"""
+    await client.put(
+        "/api/settings",
+        json={"settings": {"ai_api_key": "sk-secret", "savings_goal": "18"}},
+    )
+    backup = (await client.get("/api/export")).json()
+    assert str(backup.get("version")) == "2"
+    assert "sk-secret" not in json.dumps(backup)
+
+    # 清空业务表
+    for t in ("positions", "transactions", "subscriptions", "debts", "budgets"):
+        await client.post("/api/portfolio/reset")  # 幂等：重播种后再删
+        from app import db
+
+        await db.fetch_all(f"DELETE FROM {t}")
+    await client.delete("/api/sessions/1")
+
+    r = await client.post("/api/import/backup", json=backup)
+    assert r.status_code == 200, r.json()
+    counts = r.json()["counts"]
+    assert counts["positions"] > 0 and counts["transactions"] > 0
+
+    # 恢复后的数据与备份一致
+    restored = (await client.get("/api/export")).json()
+    assert len(restored["positions"]) == len(backup["positions"])
+    assert restored["positions"][0]["symbol"] == backup["positions"][0]["symbol"]
+    assert len(restored["transactions"]) == len(backup["transactions"])
+    # AI Key 不恢复（安全边界）
+    assert restored["settings"].get("ai_api_key") in (None, "")
+
+    # 非法备份 → 400
+    r2 = await client.post("/api/import/backup", json={"meta": {"version": "unknown"}})
+    assert r2.status_code == 400
+
+
+async def test_kline_endpoint(client, monkeypatch) -> None:
+    """K 线端点：正常返回、非法代码 404。"""
+    from app import quotes as quotes_mod
+
+    async def _fake(symbol, period, limit):
+        return {
+            "symbol": symbol,
+            "period": period,
+            "source": "fake",
+            "points": [{"date": "2026-09-01", "close": 10.0, "pct_change": 0.1}],
+        }
+
+    monkeypatch.setattr(quotes_mod, "kline", _fake)
+    r = await client.get("/api/kline", params={"symbol": "600519"})
+    assert r.status_code == 200
+    assert r.json()["points"]
+
+    async def _empty(symbol, period, limit):
+        return None
+
+    monkeypatch.setattr(quotes_mod, "kline", _empty)
+    r2 = await client.get("/api/kline", params={"symbol": "000000"})
+    assert r2.status_code == 404
+
+
+async def test_export_csv(client) -> None:
+    """流水 CSV 导出：带 BOM、含表头与示例数据。"""
+    r = await client.get("/api/export/csv")
+    assert r.status_code == 200
+    text = r.text
+    assert text.startswith("\ufeff日期")
+    assert "项目" in text and "分类" in text and "金额" in text
+
+
 async def test_budgets_lifecycle(client) -> None:
     """预算：设置本月总预算+分类预算 → 实时使用率计算；非法月份拒绝。"""
     month = datetime.now().astimezone().strftime("%Y-%m")
@@ -661,6 +755,8 @@ async def test_manual_report(client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
+    # 晨报走五维体检输出：含综合评分、总市值与维度结论
+    assert "综合评分" in body["answer"]
     assert "总市值" in body["answer"]
 
 

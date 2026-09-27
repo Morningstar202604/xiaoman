@@ -1,11 +1,15 @@
 """问答服务：把用户的提问跑成一份可复核的财务回答。
 
-替代旧的 LangGraph 编排——这里就是一段清晰的异步顺序流程：
-  分类意图 → 取数分析（并行收集市场/账本视角）→ 风控复核 → 成文（流式）
+唯一执行路径是 LangGraph 多智能体编排图（app/agent_graph.py）：
+  supervisor（分类 agent）→ 记账 / 通用 / 市场+账本+风控 / 成文 agent 节点，
+  图负责编排与状态流转，数字仍由 analysis 确定性内核计算；
+  成文节点内捕获 agent 工具循环失败并降级确定性模板（图内降级，无旧双轨）。
+  本模块只保留图各节点复用的纯函数（路由/历史/通用/记账解析/指标）。
 
 事件契约（SSE，由 main.py 转发给前端）：
   {"type":"start","question":...}
   {"type":"step","id":"market","label":"查看持仓","detail":"...","phase":"start|done"}
+  {"type":"agent_step","name":"get_market_view","args":{...},"summary":"..."}  # agent 模式
   {"type":"text","delta":"..."}          # 成文增量（LLM 流式 或 模板一次给出）
   {"type":"final","answer":...,"level":...,"route":...,"metrics":{...},"flags":[...],"llm":"llm|template"}
 """
@@ -13,16 +17,21 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from . import analysis, db, llm, nlparse
-from .quotes import live_quotes
+from . import db, llm, nlparse
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
 
 MARKET_WORDS = ("股票", "基金", "持仓", "仓位", "组合", "收益", "亏", "涨", "跌", "etf", "市值", "资产", "集中度", "配置")
 LEDGER_WORDS = ("花", "支出", "记账", "账", "预算", "订阅", "会员", "还款", "负债", "房贷", "信用卡", "现金流", "存", "省", "应急金", "储蓄", "收入", "余额", "工资")
+# 目标/体检专用词：命中即按「市场+账本」全量财务路由（体检与目标进度需要完整数据）。
+# 刻意不用「目标」「进度」这类宽泛词，避免「人生目标」这类非财务问法被误伤（宁缺毋滥）。
+GOAL_WORDS = ("体检", "健康检查", "存够", "攒够", "首付", "买房", "买车", "还差多少", "建议月存", "攒钱", "存款目标", "攒首付")
+# 记忆动词：短句 + 无问号 → 对话内「记住/记得 …」直接存长期记忆（规则级，无需模型）
+MEMORY_VERBS = ("记住", "记得")
 
 GENERAL_SYSTEM = (
     "你是一个通用 AI 助手，同时具备个人理财工具的能力。"
@@ -117,11 +126,15 @@ async def _try_nl_add(question: str, reason: str, emit: Emit) -> dict[str, Any] 
 
 
 def route_question(question: str) -> tuple[str, str]:
-    """规则分类（不调模型）：命中投资词 → market，命中收支词 → ledger，都命中 → both，都不命中 → general。
+    """规则分类（不调模型）：命中目标/体检词 → goal（全量财务路由），命中投资词 → market，
+    命中收支词 → ledger，都命中 → both，都不命中 → general。
 
     宁缺毋滥：不确定是否问财务时一律 general，绝不做「猜测式财务综合分析」。
     """
     q = question.lower()
+    hit_g = [w for w in GOAL_WORDS if w in q]
+    if hit_g:
+        return "goal", f"涉及财务目标/体检（{hit_g[0]}）"
     hit_m = [w for w in MARKET_WORDS if w in q]
     hit_l = [w for w in LEDGER_WORDS if w in q]
     if hit_m and hit_l:
@@ -131,6 +144,54 @@ def route_question(question: str) -> tuple[str, str]:
     if hit_l:
         return "ledger", f"涉及收支/负债（{hit_l[0]}）"
     return "general", "未命中财务关键词，按通用问答处理"
+
+
+def _looks_like_memory(question: str) -> bool:
+    """短句 + 记忆动词 + 无疑问词 → 视为「记住/记得 …」记忆指令。
+
+    与一句话记账同一套保守判定：疑问句（「你还记得吗」）绝不当记忆指令。
+    """
+    q = question.strip()
+    if not q or len(q) > NL_MAX_LEN:
+        return False
+    if any(m in q for m in QUESTION_MARKS):
+        return False
+    return any(v in q for v in MEMORY_VERBS)
+
+
+async def _try_save_memory(question: str, emit: Emit) -> dict[str, Any] | None:
+    """对话内记忆指令：规则提取内容 → 存长期记忆 → 回执（无需模型）。
+
+    提取「记住/记得」之后的内容；提取不到有效内容（如单独一个「记住」）返回 None。
+    """
+    if not _looks_like_memory(question):
+        return None
+    content = re.sub(
+        rf"^(?:帮我|请|麻烦|要|我想)*?(?:{'|'.join(MEMORY_VERBS)})[:：]?",
+        "",
+        question.strip(),
+    ).strip("，。！、 ")
+    if len(content) < 2:
+        return None
+
+    out = await db.add_memory(content)
+    await emit({
+        "type": "step", "id": "memory", "label": "已记住",
+        "detail": content[:30] + ("…" if len(content) > 30 else ""), "phase": "done",
+    })
+    return {
+        "answer": (
+            f"好，我记住了：{content}。\n\n"
+            "以后涉及相关问题时我会参考它；可在「设置 → 长期记忆」查看或删除。"
+        ),
+        "level": "已记住",
+        "route": "memory",
+        "route_reason": "识别为「记住/记得 …」记忆指令，直接存长期记忆",
+        "metrics": {},
+        "flags": [],
+        "llm": "template",
+        "memory_deduped": out.get("deduped", False),
+    }
 
 
 async def _build_history(
@@ -189,105 +250,10 @@ async def _run_general(question: str, reason: str, emit: Emit, thread_id: str | 
     }
 
 
-async def run_question(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
-    """执行一轮问答，返回最终元信息（由调用方负责归档与转发 final 事件）。"""
-    await emit({"type": "start", "question": question})
-
-    route, reason = route_question(question)
-    # 省略式追问（「那上个月呢？」）不含财务关键词，需承接上一轮财务提问
-    if route == "general" and await _is_finance_followup(question, thread_id):
-        route, reason = "both", "承接上一轮财务提问的省略追问"
-
-    # 一句话记账优先：短句且能解析出金额时直接入账（无需模型），不进入问答链路
-    recorded = await _try_nl_add(question, reason, emit)
-    if recorded is not None:
-        return recorded
-
-    if route == "general":
-        return await _run_general(question, reason, emit, thread_id)
-
-    await emit({
-        "type": "step", "id": "supervisor", "label": "理解问题",
-        "detail": f"{reason}，开始分析", "phase": "done",
-    })
-
-    routes = ["market", "ledger"] if route == "both" else [route]
-    market = ledger = None
-
-    # 取数分析（市场 / 账本视角共用同一份行情）
-    positions = await db.list_positions()
-    live = await live_quotes(positions)
-    has_data = bool(positions) or bool(await db.fetch_all("SELECT 1 FROM transactions LIMIT 1"))
-
-    if "market" in routes:
-        await emit({"type": "step", "id": "market", "label": "查看持仓", "detail": "拉取持仓与行情，计算盈亏与集中度", "phase": "start"})
-        market = analysis.market_view(positions, live)
-        await emit({"type": "step", "id": "market", "label": "查看持仓", "detail": f"总市值 {market['total_market_value']:,.0f} 元，累计{'浮盈' if market['total_pnl'] >= 0 else '浮亏'} {abs(market['total_pnl']):,.0f} 元", "phase": "done"})
-
-    if "ledger" in routes:
-        await emit({"type": "step", "id": "ledger", "label": "核对账本", "detail": "汇总本月收支、订阅、负债与应急金", "phase": "start"})
-        settings = await db.get_settings()
-        ledger = analysis.ledger_view(
-            await db.list_transactions(),
-            await db.list_subscriptions(),
-            await db.list_debts(),
-            settings,
-            positions,
-            live,
-        )
-        await emit({"type": "step", "id": "ledger", "label": "核对账本", "detail": f"本月结余 {ledger['net']:,.0f} 元，负债月供 {ledger['debt_monthly']:,.0f} 元", "phase": "done"})
-
-    flags = analysis.risk_checks(market, ledger)
-    if flags:
-        await emit({
-            "type": "step", "id": "risk", "label": "风险复核",
-            "detail": f"发现 {len(flags)} 项需关注：" + "；".join(f["text"] for f in flags[:2]),
-            "phase": "done",
-        })
-    else:
-        await emit({"type": "step", "id": "risk", "label": "风险复核", "detail": "未发现明显风险项", "phase": "done"})
-
-    # 成文：模型润色（流式）→ 模板兜底
-    level = "L2 建议" if flags else "L1 洞察"
-    fallback = analysis.template_answer(market, ledger, flags, has_data=has_data)
-    history = await _build_history(thread_id)
-    system = (
-        "你是用户的个人理财助手。根据给定的持仓与账本数据，用简洁的中文回答用户的问题："
-        "先一句话给结论，再分点列出关键数字，最后提示风险项（如有）。"
-        "不要编造任何未给出的数字，不要给出具体买卖指令。"
-    )
-    if history:
-        system += (
-            "本次附带了同一会话的历史问答，用于理解「那上个月呢」这类省略追问："
-            "历史只作上下文参考，所有数字必须以本轮给定数据为准，不得沿用历史里的数字。"
-        )
-    user_obj: dict[str, Any] = {
-        "question": question,
-        "market": market,
-        "ledger": ledger,
-        "flags": flags,
-        "level": level,
-    }
-    if history:
-        user_obj["history"] = history
-    user = json.dumps(user_obj, ensure_ascii=False)
-
-    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "汇总结论与数字", "phase": "start"})
-
-    chunks: list[str] = []
-    src = "template"
-    async for delta, s in llm.stream_narrate(system, user, fallback):
-        src = s
-        chunks.append(delta)
-        await emit({"type": "text", "delta": delta})
-
-    answer = "".join(chunks).strip() or fallback
-    if analysis.DISCLAIMER not in answer:
-        answer = answer + "\n\n— " + analysis.DISCLAIMER
-
-    await emit({"type": "step", "id": "finalize", "label": "整理成文", "detail": "已完成", "phase": "done"})
-
-    metrics = {}
+def _metrics_from(
+    market: dict[str, Any] | None, ledger: dict[str, Any] | None
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
     if market:
         metrics.update({
             "total_market_value": market["total_market_value"],
@@ -301,13 +267,17 @@ async def run_question(question: str, emit: Emit, thread_id: str | None = None) 
             "debt_monthly": ledger["debt_monthly"],
             "dti_pct": ledger["dti_pct"],
         })
+    return metrics
 
-    return {
-        "answer": answer,
-        "level": level,
-        "route": route,
-        "route_reason": reason,
-        "metrics": metrics,
-        "flags": flags,
-        "llm": src,
-    }
+
+async def run_question(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
+    """执行一轮问答，返回最终元信息（由调用方负责归档与转发 final 事件）。
+
+    主路径：LangGraph 多智能体图（agent_graph.run_graph）。
+    图任何一步失败（节点异常/模型调用异常等）→ 降级本模块旧顺序流程（_legacy），
+    保证与图同构的输出与事件，服务不中断、不冒充模型结果。
+    """
+    await emit({"type": "start", "question": question})
+    from .agent_graph import run_graph
+
+    return await run_graph(question, emit, thread_id)

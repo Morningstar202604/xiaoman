@@ -342,9 +342,11 @@ async def collect_dashboard() -> dict[str, Any]:
     debts = await db.list_debts()
     led = ledger_view(txs, subs, debts, settings, positions, live)
     flags = risk_checks(m, led)
+    goals = goal_progress(await db.list_goals())
 
     return {
         "positions": m["positions"],
+        "goals": goals,
         "totals": {
             "total_market_value": m["total_market_value"],
             "total_cost": m["total_cost"],
@@ -383,3 +385,208 @@ async def collect_dashboard() -> dict[str, Any]:
             "seeded": settings.get("data_note", "seed") != "user",
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# 财务目标 / 体检
+# ---------------------------------------------------------------------------
+
+
+def goal_progress(goals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """目标进度：百分比、缺口、距截止月剩余月数、建议月存。纯函数，可单测。"""
+    now = datetime.now()
+    out: list[dict[str, Any]] = []
+    for g in goals:
+        target = _num(g.get("target"))
+        saved = _num(g.get("saved"))
+        pct = round(saved / target * 100, 1) if target > 0 else 0.0
+        months_left = None
+        deadline = str(g.get("deadline") or "").strip()
+        if deadline and len(deadline) == 7:
+            try:
+                ym = datetime.strptime(deadline, "%Y-%m")
+                months_left = max(
+                    0, (ym.year - now.year) * 12 + (ym.month - now.month)
+                )
+            except ValueError:
+                months_left = None
+        gap = max(0.0, target - saved)
+        monthly = round(gap / months_left, 2) if months_left else None
+        out.append(
+            {
+                "name": g.get("name") or "",
+                "target": target,
+                "saved": saved,
+                "pct": pct,
+                "gap": round(gap, 2),
+                "deadline": deadline,
+                "months_left": months_left,
+                "monthly_suggest": monthly,
+                "done": target > 0 and saved >= target,
+            }
+        )
+    return out
+
+
+def health_check(
+    market: dict[str, Any] | None,
+    ledger: dict[str, Any] | None,
+    flags: list[dict[str, Any]],
+    goals: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """结构化财务体检：资产配置 / 现金流 / 负债 / 应急金 / 目标进度 五维评分。
+
+    每维度返回 status（good/warn/bad）+ 一句 human 可读结论。纯函数，供工具与 REST 复用。
+    """
+    dims: list[dict[str, Any]] = []
+
+    # 1) 资产配置
+    conc = (market or {}).get("concentration") or {}
+    breaches = conc.get("asset_breaches", [])
+    if breaches:
+        dims.append({
+            "key": "portfolio",
+            "title": "资产配置",
+            "status": "warn",
+            "detail": (
+                f"总市值 {market['total_market_value']:,.0f} 元，存在 "
+                f"{len(breaches)} 项集中度超限：{'、'.join(b['name'] for b in breaches[:3])}"
+            ),
+            "suggestion": "单一持仓/行业占比过高，考虑分散配置降低波动。",
+        })
+    elif market:
+        m = market
+        word = "浮盈" if m["total_pnl"] >= 0 else "浮亏"
+        dims.append({
+            "key": "portfolio",
+            "title": "资产配置",
+            "status": "good",
+            "detail": (
+                f"总市值 {m['total_market_value']:,.0f} 元，累计{word} {abs(m['total_pnl']):,.0f} 元，"
+                "持仓集中度在阈值内，配置较为分散。"
+            ),
+            "suggestion": "",
+        })
+
+    # 2) 现金流 / 储蓄率
+    if ledger:
+        sr = ledger.get("savings_rate", 0)
+        net = ledger.get("net", 0)
+        if sr < SAVINGS_RATE_WARN_PCT:
+            dims.append({
+                "key": "cashflow",
+                "title": "现金流",
+                "status": "warn",
+                "detail": f"本月结余 {net:,.0f} 元，储蓄率 {sr}% 低于建议线 {SAVINGS_RATE_WARN_PCT}%",
+                "suggestion": "梳理非必要支出（可看支出分类），把储蓄率提到 20% 以上。",
+            })
+        elif sr >= 20:
+            dims.append({
+                "key": "cashflow",
+                "title": "现金流",
+                "status": "good",
+                "detail": f"本月结余 {net:,.0f} 元，储蓄率 {sr}%，处于健康区间。",
+                "suggestion": "",
+            })
+
+    # 3) 负债健康
+    if ledger:
+        dti = ledger.get("dti_pct", 0)
+        high = ledger.get("high_rate_debts") or []
+        if dti > DTI_WARN_PCT or high:
+            dims.append({
+                "key": "debt",
+                "title": "负债健康",
+                "status": "warn" if not high else "bad",
+                "detail": f"负债月供占收入 {dti}%（建议线 {DTI_WARN_PCT}%）" + (f"，存在高息负债：{high[0]['name']}" if high else ""),
+                "suggestion": "优先偿还高息负债（如信用卡分期），再考虑新增负债。",
+            })
+        elif ledger.get("debt_monthly", 0) == 0:
+            dims.append({
+                "key": "debt",
+                "title": "负债健康",
+                "status": "good",
+                "detail": "当前无负债月供，财务结构干净。",
+                "suggestion": "",
+            })
+
+    # 4) 应急金
+    em = (ledger or {}).get("emergency") or {}
+    if em.get("has_data"):
+        ok = em.get("ok", True)
+        dims.append({
+            "key": "emergency",
+            "title": "应急金",
+            "status": "good" if ok else "warn",
+            "detail": (
+                f"应急金可覆盖 {em.get('months_covered')} 个月必要支出（目标 {em.get('target_months')} 个月）"
+                if ok
+                else f"应急金仅覆盖 {em.get('months_covered')} 个月，低于目标 {em.get('target_months')} 个月"
+            ),
+            "suggestion": "" if ok else "每月结余优先补足应急金，再谈其它目标。",
+        })
+
+    # 5) 目标进度
+    gs = goal_progress(goals or [])
+    if gs:
+        done = [g for g in gs if g["done"]]
+        on_going = [g for g in gs if not g["done"]]
+        if on_going:
+            slow = [g for g in on_going if g.get("months_left") and g["monthly_suggest"] and g["monthly_suggest"] > (ledger or {}).get("net", 0)]
+            dims.append({
+                "key": "goals",
+                "title": "目标进度",
+                "status": "warn" if slow else "good",
+                "detail": (
+                    f"{len(done)} 个目标已完成；"
+                    + "、".join(f"{g['name']} {g['pct']}%" for g in on_going[:3])
+                    + ("（按当前结余，部分目标可能赶不上截止日）" if slow else "")
+                ),
+                "suggestion": "" if not slow else "提高每月储蓄或延后目标截止月。",
+            })
+        else:
+            dims.append({
+                "key": "goals",
+                "title": "目标进度",
+                "status": "good",
+                "detail": "全部目标已达成。",
+                "suggestion": "",
+            })
+
+    flags_texts = [f["text"] for f in flags]
+    if not dims:
+        # 空库不给「整体健康 100 分」的假象：没有任何数据可评估
+        return {
+            "score": 0,
+            "dimensions": [],
+            "flags": flags_texts,
+            "summary": "数据不足：记几笔账、加几条持仓后体检才有意义",
+        }
+    score = max(0, 100 - 20 * len([d for d in dims if d["status"] != "good"]))
+    return {
+        "score": min(100, score),
+        "dimensions": dims,
+        "flags": flags_texts,
+        "summary": (
+            "整体健康" if all(d["status"] == "good" for d in dims)
+            else "有几项需要关注，按建议逐条处理即可"
+        ),
+    }
+
+
+HEALTH_WORDS = ("体检", "健康检查", "哪里需要改进", "财务状况怎么样", "综合评分")
+
+
+def health_report_text(report: dict[str, Any]) -> str:
+    """把 health_check 报告转成给用户看的文本（确定性体检输出，无需模型）。"""
+    lines = [f"财务体检综合评分 {report['score']} 分（{report['summary']}）。"]
+    if not report["dimensions"]:
+        lines.append("当前数据太少，暂时无法逐项评估——记几笔账、加几条持仓后体检会更完整。")
+        return "\n".join(lines)
+    for d in report["dimensions"]:
+        status = {"good": "健康", "warn": "需关注", "bad": "风险"}.get(d["status"], d["status"])
+        line = f"- {d['title']}（{status}）：{d['detail']}"
+        if d.get("suggestion"):
+            line += f"\n  建议：{d['suggestion']}"
+        lines.append(line)
+    return "\n".join(lines)
