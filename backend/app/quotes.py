@@ -63,7 +63,7 @@ async def _eastmoney_quotes(symbols: list[str]) -> dict[str, float]:
         "secids": ",".join(secids),
         "ut": "fa5fd1943c7b386f172d6893dbfba10b",
     }
-    headers = {"User-Agent": "Mozilla/5.0 (wealth-office)"}
+    headers = {"User-Agent": "Mozilla/5.0 (xiaoman)"}
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
             resp = await client.get(EASTMONEY_URL, params=params, headers=headers)
@@ -199,7 +199,7 @@ async def _fetch_kline(secid: str, klt: int, limit: int) -> list[str]:
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
         "ut": "fa5fd1943c7b386f172d6893dbfba10b",
     }
-    headers = {"User-Agent": "Mozilla/5.0 (wealth-office)"}
+    headers = {"User-Agent": "Mozilla/5.0 (xiaoman)"}
     async with httpx.AsyncClient(timeout=6.0) as client:
         resp = await client.get(KLINE_URL, params=params, headers=headers)
         resp.raise_for_status()

@@ -36,7 +36,7 @@ def once(model: str, question: str, timeout: float = 60.0):
                 "messages": [
                     {
                         "role": "system",
-                        "content": "你是随身理财的财务助手，用中文简洁回答，基于事实不夸大。",
+                        "content": "你是小满的财务助手，用中文简洁回答，基于事实不夸大。",
                     },
                     {"role": "user", "content": question},
                 ],

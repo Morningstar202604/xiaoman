@@ -352,7 +352,7 @@ export function SettingsView() {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `随身理财-备份-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `小满-备份-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
       toast("备份已下载", "ok");

@@ -54,7 +54,7 @@
     --card: 40 40% 99%;
     --card-foreground: 36 18% 12%;
 
-    --primary: 174 62% 29%;
+    --primary: 38 78% 45%;
     --primary-foreground: 40 40% 98%;
 
     --secondary: 40 24% 92%;
@@ -63,18 +63,18 @@
     --muted: 40 22% 93%;
     --muted-foreground: 36 10% 44%;
 
-    --accent: 174 62% 93%;
-    --accent-foreground: 174 70% 20%;
+    --accent: 40 85% 94%;
+    --accent-foreground: 38 70% 22%;
 
     --border: 38 22% 87%;
     --input: 38 20% 84%;
-    --ring: 174 62% 34%;
+    --ring: 38 78% 50%;
 
     --radius: 0.75rem;
     --card-pad: 1rem;
 
     /* 品牌主色（Logo 等视觉元素复用） */
-    --brand: 174 62% 29%;
+    --brand: 38 78% 45%;
     --brand-gold: 43 68% 44%;
   }
 
@@ -87,8 +87,8 @@
     --card-foreground: 40 24% 92%;
 
     /* 气泡降饱和：不再用高亮青撞白字 */
-    --primary: 172 38% 42%;
-    --primary-foreground: 40 30% 96%;
+    --primary: 40 88% 62%;
+    --primary-foreground: 35 60% 10%;
 
     --secondary: 32 10% 16%;
     --secondary-foreground: 40 20% 92%;
@@ -96,14 +96,14 @@
     --muted: 32 10% 15%;
     --muted-foreground: 36 10% 62%;
 
-    --accent: 174 26% 18%;
-    --accent-foreground: 174 40% 86%;
+    --accent: 40 40% 18%;
+    --accent-foreground: 40 75% 90%;
 
     --border: 34 12% 24%;
     --input: 34 12% 24%;
-    --ring: 172 38% 48%;
+    --ring: 40 88% 60%;
 
-    --brand: 172 38% 46%;
+    --brand: 40 88% 62%;
     --brand-gold: 43 68% 58%;
   }
 }

@@ -29,7 +29,7 @@ from .quotes import invalidate_quotes_cache
 log = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = APP_DIR.parent.parent  # wealth-office/
+PROJECT_DIR = APP_DIR.parent.parent  # 仓库根目录（wealth-office 历史名）
 FRONTEND_DIST = PROJECT_DIR / "frontend" / "dist"
 
 
@@ -43,7 +43,7 @@ async def lifespan(_: FastAPI):
     await db.close_db()
 
 
-app = FastAPI(title="随身理财公司", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="小满 API", version="1.0.0", lifespan=lifespan)
 
 _dev_origins = {"http://127.0.0.1:5199", "http://localhost:5199"}
 if os.getenv("CORS_ALLOW_ALL") == "1":  # 仅调试用
@@ -816,7 +816,7 @@ async def import_backup(payload: dict) -> dict:
     if not isinstance(data, dict):
         return JSONResponse({"error": "备份格式不正确"}, status_code=400)
     version = str((data.get("meta") or {}).get("version") or data.get("version") or "")
-    if not (version.startswith("wealth-office-v") or version == "2"):
+    if not (version.startswith(("wealth-office-v", "xiaoman-v")) or version == "2"):
         return JSONResponse({"error": f"备份格式不被识别（version={version or '空'}）"}, status_code=400)
     try:
         counts = await db.import_backup(data)

@@ -6,7 +6,7 @@
  *   3. 静态资源：stale-while-revalidate；
  *   4. 每次构建自动 bump CACHE 版本（scripts/bump-sw.mjs），发布新版本时清理旧缓存。 */
 
-const CACHE = "wo-shell-1790551996673"; // 构建脚本自动替换版本号
+const CACHE = "wo-shell-1790553197128"; // 构建脚本自动替换版本号
 const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {

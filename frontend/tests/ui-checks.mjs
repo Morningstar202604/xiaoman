@@ -254,7 +254,7 @@ await heroPage.route("**/api/history?thread_id=hero-mock*", async (route) =>
 await heroPage.goto(BASE, { waitUntil: "networkidle" });
 await heroPage.waitForTimeout(800);
 const heroTxt = await heroPage.locator("main").innerText();
-check("空数据首屏为通用助手引导", /没有数据也能|先随便聊聊|我是随身理财/.test(heroTxt));
+check("空数据首屏为通用助手引导", /没有数据也能|先随便聊聊|我是小满/.test(heroTxt));
 check("空数据首屏不含持仓类建议", !heroTxt.includes("我的组合现在赚还是亏"));
 check("空数据首屏无「正在准备会话…」滞留", !heroTxt.includes("正在准备会话"));
 await heroPage.close();
@@ -378,7 +378,7 @@ await agentPage.route("**/api/history?thread_id=agent-empty*", async (route) =>
 await agentPage.goto(BASE, { waitUntil: "networkidle" });
 await agentPage.waitForTimeout(800);
 const agentTxt = await agentPage.locator("main").innerText();
-check("空态自述为通用助手", agentTxt.includes("我是随身理财"));
+check("空态自述为通用助手", agentTxt.includes("我是小满"));
 check("空态建议体现通用能力", agentTxt.includes("理一理") || agentTxt.includes("改得更专业"));
 check("空态不追问财务问题", !agentTxt.includes("支持哪些方式导入账单"));
 await agentPage.close();

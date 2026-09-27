@@ -1,13 +1,13 @@
-# 随身理财 · Docker Compose 部署
+# 小满 · Docker Compose 部署（服务名 xiaoman）
 # 用法：docker compose up -d --build   →  http://<服务器IP>:8787
 # 可选环境变量：
 #   API_TOKEN      访问口令（不设则仅限本机/内网 Host，需配合 ALLOWED_HOSTS）
 #   ALLOWED_HOSTS  开放 Host 白名单（逗号分隔，反代/Docker 外网访问时填写）
 #   LLM_BASE_URL / LLM_API_KEY / LLM_MODEL   AI 模型（也可在应用设置页里填）
 services:
-  wealth-office:
+  xiaoman:
     build: .
-    container_name: wealth-office
+    container_name: xiaoman
     restart: unless-stopped
     ports:
       - "8787:8787"

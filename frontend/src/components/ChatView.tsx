@@ -316,7 +316,7 @@ export function ChatView({
   /** 把「问题 + 回答」导出为 Markdown（复制 / 下载） */
   const exportAnswer = async (m: ChatMessage, action: "copy" | "download") => {
     const md = [
-      `# 随身理财 · 问答记录`,
+      `# ${BRAND.name} · 问答记录`,
       ``,
       `**问题**：${m.q ?? ""}`,
       ``,
@@ -328,7 +328,7 @@ export function ChatView({
       ``,
       `---`,
       ``,
-      `*由随身理财（${BRAND.tagline}）基于你的本地数据生成，不构成投资建议。*`,
+      `*由${BRAND.name}（${BRAND.tagline}）基于你的本地数据生成，不构成投资建议。*`,
     ].join("\n");
     try {
       if (action === "copy") {
@@ -338,7 +338,7 @@ export function ChatView({
         const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `随身理财-${new Date().toISOString().slice(0, 10)}.md`;
+        a.download = `${BRAND.name}-${new Date().toISOString().slice(0, 10)}.md`;
         a.click();
         URL.revokeObjectURL(a.href);
         toast("已下载 Markdown", "ok");
@@ -445,7 +445,7 @@ export function ChatView({
             ) : (
               <>
                 <h1 className="text-2xl sm:text-[28px] font-semibold tracking-tight leading-[1.2] text-balance">
-                  我是随身理财
+                  我是{BRAND.name}
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed text-balance">
                   没有数据也能聊：先随便问问，或去「记账」记下第一笔，再让我帮你分析。

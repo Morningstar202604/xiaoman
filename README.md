@@ -1,4 +1,16 @@
-# 随身理财 · 你的随身财务管家
+# 小满 · 慢慢存，小满即富
+
+## 🌾 品牌
+
+**小满**——二十四节气里谷物渐满未满的时节。理财同理：不求一夜暴富，每天攒一点，
+日子自有分寸地饱满起来。
+
+- **中文名**：小满（Xiaoman）｜**英文名**：Xiaoman
+- **Slogan**：慢慢存，小满即富
+- **交互口号**：记一笔，问一句
+- **视觉**：麦穗金主色 + 宣纸暖白底 + 墨色正文（深色为墨夜纸），Logo 为一颗渐满的麦粒与上扬的积累弧线
+
+---
 
 一个**对话优先（chat-first）**的个人财务助手：先当通用问答助手打开，有数据后再叠加组合持仓 / 风控规则引擎的确定性分析（未接入模型时内置分析兜底）+ PWA 移动端。
 数据全部存在本地 SQLite，行情走东方财富（失败自动降级快照），模型走国内 OpenAI 兼容端点，不依赖国外服务。
@@ -62,7 +74,7 @@ scripts/dev.sh   # 后端 8787 + 前端 dev 5199，Ctrl-C 一起退出
 **Docker 部署**（单容器，前端构建产物 + 后端同端口）：
 
 ```bash
-docker compose up -d --build     # 或 docker build -t wealth-office . && docker run -p 8787:8787 -v wo-data:/app/backend/data wealth-office
+docker compose up -d --build     # 或 docker build -t xiaoman . && docker run -p 8787:8787 -v wo-data:/app/backend/data xiaoman
 ```
 
 容器内数据存 `/app/backend/data`（volume 持久化）；外网访问需设 `API_TOKEN`，否则 Host 防护只放行本机——反代/服务器部署时在 compose 里填 `API_TOKEN` 与 `ALLOWED_HOSTS`（逗号分隔白名单）。

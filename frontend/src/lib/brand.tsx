@@ -1,10 +1,12 @@
-/** 品牌系统：随身理财 —— 名称 / 标语 / Logo / 品牌色预设。 */
+/** 品牌系统：小满 —— 名称 / 标语 / Logo / 品牌色预设。 */
 
 export const BRAND = {
-  name: "随身理财",
+  name: "小满",
+  /** 品牌 slogan：二十四节气「小满」，谷物渐满未满——理财同理，慢慢存，富足自有分寸地到来 */
+  slogan: "慢慢存，小满即富",
   /** 副标用动作对，不用"你的XX管家"这类换行业也通顺的口号 */
   tagline: "记一笔，问一句",
-  en: "SuiShen Wealth",
+  en: "Xiaoman",
 };
 
 export interface BrandPreset {
@@ -17,8 +19,29 @@ export interface BrandPreset {
   accent: string;
 }
 
-/** 四套品牌色：翡翠（默认）/ 靛蓝 / 琥珀 / 石墨 */
+/** 品牌色预设：麦金（默认）/ 翡翠 / 靛蓝 / 琥珀 / 石墨 */
 export const BRAND_PRESETS: BrandPreset[] = [
+  {
+    id: "wheat",
+    label: "麦金",
+    light: {
+      "--primary": "38 78% 45%",
+      "--primary-foreground": "0 0% 100%",
+      "--accent": "40 85% 94%",
+      "--accent-foreground": "38 70% 22%",
+      "--ring": "38 78% 50%",
+      "--brand": "38 78% 45%",
+    },
+    dark: {
+      "--primary": "40 88% 62%",
+      "--primary-foreground": "35 60% 10%",
+      "--accent": "40 40% 18%",
+      "--accent-foreground": "40 75% 90%",
+      "--ring": "40 88% 60%",
+      "--brand": "40 88% 62%",
+    },
+    accent: "#b8891f",
+  },
   {
     id: "emerald",
     label: "翡翠",
@@ -119,22 +142,26 @@ export function BrandLogo({ size = 28, className }: { size?: number; className?:
       className={className}
       aria-label={`${BRAND.name} Logo`}
     >
-      {/* 外圆（钱币） */}
+      {/* 麦粒渐满：圆底麦粒 + 上扬的「慢慢攒」弧线 */}
       <circle cx="24" cy="24" r="21" fill="hsl(var(--primary) / 0.12)" />
       <circle cx="24" cy="24" r="21" stroke="hsl(var(--primary))" strokeWidth="2.6" />
-      {/* 方孔 */}
-      <rect x="19.4" y="19.4" width="9.2" height="9.2" rx="1.6" stroke="hsl(var(--primary))" strokeWidth="2" />
-      {/* 上升趋势线（从方孔穿出） */}
+      {/* 麦粒（居中，饱满一颗） */}
+      <ellipse cx="24" cy="25" rx="5.6" ry="8.4" fill="hsl(var(--brand-gold, 43 78% 46%))" transform="rotate(-22 24 25)" />
+      {/* 麦芒 */}
       <path
-        d="M13 31.5 L20 24.5 L25 29 L35 16.5"
+        d="M24 16.6 L24 10.6 M21.2 18.6 L17.6 14.4 M26.8 18.6 L30.4 14.4"
         stroke="hsl(var(--brand-gold, 43 78% 46%))"
-        strokeWidth="2.8"
+        strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
+      />
+      {/* 上扬积累弧线 */}
+      <path
+        d="M10.5 34 C15 28.5 20 27.5 24.5 29.5"
+        stroke="hsl(var(--primary))"
+        strokeWidth="2.4"
+        strokeLinecap="round"
         fill="none"
       />
-      {/* 终点圆点 */}
-      <circle cx="35" cy="16.5" r="2.4" fill="hsl(var(--brand-gold, 43 78% 46%))" />
     </svg>
   );
 }
