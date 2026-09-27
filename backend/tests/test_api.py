@@ -414,6 +414,17 @@ async def test_general_answer_emits_no_internal_steps(client) -> None:
     assert [e["type"] for e in events][-1] == "done"
 
 
+async def test_ask_emits_single_start_event(client) -> None:
+    """start 只发一次：事件契约归 service，API 层曾重复发首帧。"""
+    async with client.stream(
+        "POST", "/api/ask", json={"question": "帮我写一段周末计划", "thread_id": "start-once"}
+    ) as resp:
+        events = await _sse_events(resp)
+    types = [e["type"] for e in events]
+    assert types.count("start") == 1, f"start 应恰好一次，实际 {types.count('start')}"
+    assert types[0] == "start" and types[-1] == "done"
+
+
 async def test_ask_sse_flow(client) -> None:
     async with client.stream(
         "POST", "/api/ask", json={"question": "我这个月的钱都花到哪了？"}

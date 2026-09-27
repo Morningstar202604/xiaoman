@@ -563,8 +563,12 @@ def sse(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
-async def _sse_stream(first: dict, runner) -> StreamingResponse:
-    """把 runner(emit, put) 产生的事件转成 SSE；断连时取消任务，不继续 yield。"""
+async def _sse_stream(first: dict | None, runner) -> StreamingResponse:
+    """把 runner(emit, put) 产生的事件转成 SSE；断连时取消任务，不继续 yield。
+
+    first 可选：仅当调用方需要在 runner 之前先发一帧时使用。
+    事件契约由 service 拥有（如 start），API 层不重复发。
+    """
 
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
@@ -583,7 +587,8 @@ async def _sse_stream(first: dict, runner) -> StreamingResponse:
                 await queue.put(None)
 
         task = asyncio.create_task(run())
-        yield sse(first)
+        if first is not None:
+            yield sse(first)
         try:
             while True:
                 item = await queue.get()
@@ -646,7 +651,8 @@ async def ask(payload: dict):
             }
         )
 
-    return await _sse_stream({"type": "start", "question": question}, runner)
+    # start 事件由 service.run_question 发出（事件契约归 service），此处不再重复发首帧
+    return await _sse_stream(None, runner)
 
 
 # ---------------------------------------------------------------------------
