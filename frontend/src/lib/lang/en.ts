@@ -394,4 +394,6 @@ export const en: Record<string, string> = {
   "app.deleteDesc": "This session's Q&A history will be permanently removed.",
   "app.delete": "Delete",
   "hc.locale": "en",
+  "entry.posCodeReq": "Symbol is required",
+  "entry.posNumErr": "Shares must be positive; cost and last price cannot be negative",
 };

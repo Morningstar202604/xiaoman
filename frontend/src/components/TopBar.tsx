@@ -26,11 +26,11 @@ export function TopBar({ onOpenSettings }: { onOpenSettings?: () => void }) {
         <span className="hidden text-[11px] text-muted-foreground leading-tight truncate md:inline">{today}</span>
       </div>
       <div className="flex items-center gap-1.5">
-        <Tooltip label={lang === "zh" ? "Switch to English" : "切换到中文"}>
+        <Tooltip label={lang === "zh" ? "Switch to English" : "Switch to Chinese"}>
           <Button
             variant="ghost"
             size="icon"
-            aria-label={lang === "zh" ? "Switch language" : "切换语言"}
+            aria-label={lang === "zh" ? "Switch language" : "Switch language"}
             onClick={() => setLang(lang === "zh" ? "en" : "zh")}
           >
             <Languages className="w-4 h-4" />

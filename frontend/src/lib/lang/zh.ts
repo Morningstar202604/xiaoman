@@ -394,4 +394,6 @@ export const zh: Record<string, string> = {
   "app.deleteDesc": "该会话的问答记录将被永久删除。",
   "app.delete": "删除",
   "hc.locale": "zh",
+  "entry.posCodeReq": "请填写持仓代码",
+  "entry.posNumErr": "股数需大于 0，成本价与现价不能为负",
 };

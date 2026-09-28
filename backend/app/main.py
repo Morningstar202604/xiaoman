@@ -343,6 +343,8 @@ NON_CONSUMPTION_CATEGORIES = ("投资", "还款")
 async def get_budgets(month: str | None = None) -> dict:
     """返回指定月（默认本月）的预算设置 + 实时使用情况。"""
     m = (month or "").strip() or _current_month()
+    if not re.fullmatch(r"(20\d{2}|19\d{2})-(0[1-9]|1[0-2])", m):
+        return JSONResponse({"error": "月份需为 YYYY-MM（01–12）"}, status_code=400)
     rows = await db.list_budgets(m)
     budgets = [
         {
@@ -718,6 +720,8 @@ async def ask(payload: dict):
     question = ((payload or {}).get("question") or "").strip()
     if not question:
         return JSONResponse({"error": "question required"}, status_code=400)
+    if len(question) > 2000:
+        return JSONResponse({"error": "问题过长（最多 2000 字）"}, status_code=400)
     thread_id = ((payload or {}).get("thread_id") or "").strip() or uuid.uuid4().hex
     regenerate = bool((payload or {}).get("regenerate"))
     lang = ((payload or {}).get("lang") or "zh").strip() or "zh"
@@ -769,6 +773,7 @@ async def ask(payload: dict):
 
 @app.get("/api/history")
 async def history(thread_id: str | None = None, limit: int = 50) -> dict:
+    limit = max(1, min(limit, 500))
     return {"runs": await db.list_runs(thread_id, limit)}
 
 

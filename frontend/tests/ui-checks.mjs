@@ -423,7 +423,11 @@ if (HAS_DATA) {
   const bodyEn = await langPage.locator("body").innerText();
   check("默认语言为英文（导航含 Chat）", bodyEn.includes("Chat"));
   check("默认英文输入框 placeholder 为英文", (await langPage.locator("textarea[placeholder*='Ask anything']").count()) === 1);
-  const langBtn = await langPage.locator("button[aria-label='切换语言']").first().click().catch(() => null);
+  const langBtn = await langPage
+    .locator("button[aria-label='切换语言'], button[aria-label='Switch language']")
+    .first()
+    .click()
+    .catch(() => null);
   await langPage.waitForTimeout(500);
   const bodyZh = await langPage.locator("body").innerText();
   check("一键切换后界面变中文（含 问答）", langBtn !== null && bodyZh.includes("问答"));

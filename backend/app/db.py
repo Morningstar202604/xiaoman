@@ -468,6 +468,14 @@ async def add_position(p: dict[str, Any]) -> dict[str, Any]:
     }
     if not clean["symbol"]:
         raise ValueError("代码不能为空")
+    if clean["shares"] <= 0 or clean["shares"] != clean["shares"]:
+        raise ValueError("股数需大于 0")
+    if clean["cost"] < 0 or clean["cost"] != clean["cost"]:
+        raise ValueError("成本价不能为负")
+    if clean["last"] < 0 or clean["last"] != clean["last"]:
+        raise ValueError("现价不能为负")
+    if clean["fee"] < 0 or clean["fee"] != clean["fee"]:
+        raise ValueError("费用不能为负")
     await conn.execute(
         "INSERT INTO positions(symbol,name,kind,industry,shares,cost,last,buy_date,fee)"
         " VALUES(:symbol,:name,:kind,:industry,:shares,:cost,:last,:buy_date,:fee)"
@@ -492,10 +500,27 @@ async def delete_position(symbol: str) -> dict[str, Any]:
 async def add_transaction(
     date: str, item: str, category: str, amount: float
 ) -> dict[str, Any]:
+    """入账唯一入口：所有路径（手动 / 一句话记账 / CSV 导入）都必须经过这里。
+
+    在此统一做真实日历校验与金额校验——`2026-13-99` 这类正则放行的
+    脏日期会污染月度统计（趋势 / 预算 / 现金流），必须在写入前拦截。
+    """
+    import re as _re
+
+    d = str(date).strip()
+    amt = float(amount)
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+        raise ValueError(f"日期需为 YYYY-MM-DD：{d!r}") from None
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"日期不是有效日历日：{d!r}") from None
+    if amt == 0 or amt != amt:  # NaN / 0 都拒绝
+        raise ValueError("金额不能为 0 或 NaN")
     conn = await _conn()
     cur = await conn.execute(
         "INSERT INTO transactions(date,item,category,amount) VALUES(?,?,?,?)",
-        (date, item, category, float(amount)),
+        (d, str(item).strip()[:80] or "未命名", str(category).strip()[:20] or "其他", amt),
     )
     await _mark_user_data(conn)
     await conn.commit()

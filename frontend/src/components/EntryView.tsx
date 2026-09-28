@@ -69,6 +69,17 @@ function PositionForm({ onDone }: { onDone: () => void }) {
   const submit = async () => {
     setErr("");
     try {
+      const shares = Number(f.shares);
+      const cost = Number(f.cost);
+      const last = Number(f.last);
+      if (!f.symbol.trim()) {
+        setErr(tt("entry.posCodeReq"));
+        return;
+      }
+      if (!(shares > 0) || !(cost >= 0) || !(last >= 0)) {
+        setErr(tt("entry.posNumErr"));
+        return;
+      }
       await api("/api/positions", {
         method: "POST",
         body: JSON.stringify({
@@ -76,9 +87,9 @@ function PositionForm({ onDone }: { onDone: () => void }) {
           name: f.name.trim(),
           kind: f.kind,
           industry: f.industry.trim() || "其他",
-          shares: Number(f.shares),
-          cost: Number(f.cost),
-          last: Number(f.last),
+          shares,
+          cost,
+          last,
         }),
       });
       onDone();
@@ -92,7 +103,7 @@ function PositionForm({ onDone }: { onDone: () => void }) {
       <div className="grid grid-cols-2 gap-2.5">
         <div>
           <label className={labelCls}>{tt("entry.posCode")}</label>
-          <input className={inputCls} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} placeholder="600519" />
+          <input className={inputCls} maxLength={6} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} placeholder="600519" />
         </div>
         <div>
           <label className={labelCls}>{tt("entry.name")}</label>
@@ -112,16 +123,16 @@ function PositionForm({ onDone }: { onDone: () => void }) {
         </div>
         <div>
           <label className={labelCls}>{tt("entry.shares")}</label>
-          <input className={inputCls} type="number" value={f.shares} onChange={(e) => setF({ ...f, shares: e.target.value })} placeholder="100" />
+          <input className={inputCls} type="number" value={f.shares} min="0.01" step="any" onChange={(e) => setF({ ...f, shares: e.target.value })} placeholder="100" />
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           <div>
             <label className={labelCls}>{tt("entry.costPrice")}</label>
-            <input className={inputCls} type="number" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} placeholder="1680" />
+            <input className={inputCls} type="number" value={f.cost} min="0" step="any" onChange={(e) => setF({ ...f, cost: e.target.value })} placeholder="1680" />
           </div>
           <div>
             <label className={labelCls}>{tt("entry.currentPrice")}</label>
-            <input className={inputCls} type="number" value={f.last} onChange={(e) => setF({ ...f, last: e.target.value })} placeholder="1521" />
+            <input className={inputCls} type="number" value={f.last} min="0" step="any" onChange={(e) => setF({ ...f, last: e.target.value })} placeholder="1521" />
           </div>
         </div>
       </div>
