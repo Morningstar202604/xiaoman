@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 随身理财 · 一键开发启动（后端 8787 + 前端 dev 5199，Ctrl-C 一起退出）
+# 小满 · 一键开发启动（后端 8787 + 前端 dev 5199，Ctrl-C 一起退出）（后端 8787 + 前端 dev 5199，Ctrl-C 一起退出）
 # 用法：scripts/dev.sh    （在仓库根目录执行；会按需创建 venv / 安装依赖）
 set -euo pipefail
 

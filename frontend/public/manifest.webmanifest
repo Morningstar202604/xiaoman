@@ -1,13 +1,13 @@
 {
-  "name": "随身理财",
-  "short_name": "随身理财",
-  "description": "你的随身财务管家：本地账本、组合持仓与风控分析",
+  "name": "小满",
+  "short_name": "小满",
+  "description": "小满 · 慢慢存，小满即富：本地账本、组合持仓与风控分析",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#f6f8fb",
-  "theme_color": "#0d7a66",
+  "theme_color": "#b8891f",
   "lang": "zh-CN",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },

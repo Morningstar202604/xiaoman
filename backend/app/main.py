@@ -29,7 +29,7 @@ from .quotes import invalidate_quotes_cache
 log = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = APP_DIR.parent.parent  # 仓库根目录（wealth-office 历史名）
+PROJECT_DIR = APP_DIR.parent.parent  # 仓库根目录
 FRONTEND_DIST = PROJECT_DIR / "frontend" / "dist"
 
 

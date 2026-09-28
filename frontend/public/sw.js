@@ -1,4 +1,4 @@
-/* 随身理财 · Service Worker
+/* 小满 · Service Worker
  * 目标：让应用可离线打开（壳与静态资源缓存），同时在线时永远拿到最新版本。
  * 原则：
  *   1. 只缓存同源 GET 资源，绝不拦截 /api/*（数据始终走网络）；
@@ -6,7 +6,7 @@
  *   3. 静态资源：stale-while-revalidate；
  *   4. 每次构建自动 bump CACHE 版本（scripts/bump-sw.mjs），发布新版本时清理旧缓存。 */
 
-const CACHE = "wo-shell-1790553197128"; // 构建脚本自动替换版本号
+const CACHE = "wo-shell-1790553485461"; // 构建脚本自动替换版本号
 const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
