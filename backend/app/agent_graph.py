@@ -257,7 +257,7 @@ async def finalize(state: AgentState) -> dict[str, Any]:
     wants_health = any(w in q for w in analysis.HEALTH_WORDS)
     if wants_health and has_data:
         fallback = analysis.health_report_text(
-            analysis.health_check(market, ledger, flags, await db.list_goals()),
+            analysis.health_check(market, ledger, flags, await db.list_goals(), lang=state.get("lang", "zh")),
             state.get("lang", "zh"),
         )
     elif wants_health:

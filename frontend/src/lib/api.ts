@@ -218,4 +218,5 @@ export const clearMemory = () =>
 // 财务体检
 // ---------------------------------------------------------------------------
 
-export const fetchHealthCheck = () => api<import("@/lib/types").HealthReport>("/api/health-check");
+export const fetchHealthCheck = (lang = "zh") =>
+  api<import("@/lib/types").HealthReport>(`/api/health-check?lang=${encodeURIComponent(lang)}`);

@@ -22,7 +22,7 @@ export function HealthCheckDialog({ open, onOpenChange }: { open: boolean; onOpe
     let alive = true;
     setReport(null);
     setError("");
-    fetchHealthCheck()
+    fetchHealthCheck(t("hc.locale"))
       .then((r) => alive && setReport(r))
       .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
     return () => {

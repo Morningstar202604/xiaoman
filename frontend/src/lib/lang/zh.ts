@@ -393,4 +393,5 @@ export const zh: Record<string, string> = {
   "app.deleteTitle": "删除这个会话？",
   "app.deleteDesc": "该会话的问答记录将被永久删除。",
   "app.delete": "删除",
+  "hc.locale": "zh",
 };

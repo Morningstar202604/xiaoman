@@ -444,11 +444,14 @@ def health_check(
     ledger: dict[str, Any] | None,
     flags: list[dict[str, Any]],
     goals: list[dict[str, Any]] | None = None,
+    lang: str = "zh",
 ) -> dict[str, Any]:
     """结构化财务体检：资产配置 / 现金流 / 负债 / 应急金 / 目标进度 五维评分。
 
     每维度返回 status（good/warn/bad）+ 一句 human 可读结论。纯函数，供工具与 REST 复用。
+    lang：zh → 中文文案；en → 英文文案（界面语言跟随）。
     """
+    en = lang != "zh"
     dims: list[dict[str, Any]] = []
 
     # 1) 资产配置
@@ -457,24 +460,40 @@ def health_check(
     if breaches:
         dims.append({
             "key": "portfolio",
-            "title": "资产配置",
+            "title": "Asset mix" if en else "资产配置",
             "status": "warn",
             "detail": (
-                f"总市值 {market['total_market_value']:,.0f} 元，存在 "
-                f"{len(breaches)} 项集中度超限：{'、'.join(b['name'] for b in breaches[:3])}"
+                f"Total market value {market['total_market_value']:,.0f} CNY, {len(breaches)} "
+                f"concentration breach(es): {'、'.join(b['name'] for b in breaches[:3])}"
+                if en
+                else (
+                    f"总市值 {market['total_market_value']:,.0f} 元，存在 "
+                    f"{len(breaches)} 项集中度超限：{'、'.join(b['name'] for b in breaches[:3])}"
+                )
             ),
-            "suggestion": "单一持仓/行业占比过高，考虑分散配置降低波动。",
+            "suggestion": (
+                "Holdings/industry weights are too concentrated — consider diversifying to reduce volatility."
+                if en
+                else "单一持仓/行业占比过高，考虑分散配置降低波动。"
+            ),
         })
     elif market:
         m = market
-        word = "浮盈" if m["total_pnl"] >= 0 else "浮亏"
+        word = "gain" if en else "浮盈"
+        loss_word = "loss" if en else "浮亏"
+        label = word if m["total_pnl"] >= 0 else loss_word
         dims.append({
             "key": "portfolio",
-            "title": "资产配置",
+            "title": "Asset mix" if en else "资产配置",
             "status": "good",
             "detail": (
-                f"总市值 {m['total_market_value']:,.0f} 元，累计{word} {abs(m['total_pnl']):,.0f} 元，"
-                "持仓集中度在阈值内，配置较为分散。"
+                f"Total market value {m['total_market_value']:,.0f} CNY, cumulative {label} {abs(m['total_pnl']):,.0f} CNY, "
+                "concentration within thresholds — well diversified."
+                if en
+                else (
+                    f"总市值 {m['total_market_value']:,.0f} 元，累计{word} {abs(m['total_pnl']):,.0f} 元，"
+                    "持仓集中度在阈值内，配置较为分散。"
+                )
             ),
             "suggestion": "",
         })
@@ -486,17 +505,29 @@ def health_check(
         if sr < SAVINGS_RATE_WARN_PCT:
             dims.append({
                 "key": "cashflow",
-                "title": "现金流",
+                "title": "Cash flow" if en else "现金流",
                 "status": "warn",
-                "detail": f"本月结余 {net:,.0f} 元，储蓄率 {sr}% 低于建议线 {SAVINGS_RATE_WARN_PCT}%",
-                "suggestion": "梳理非必要支出（可看支出分类），把储蓄率提到 20% 以上。",
+                "detail": (
+                    f"Net this month {net:,.0f} CNY, savings rate {sr}% below the {SAVINGS_RATE_WARN_PCT}% target"
+                    if en
+                    else f"本月结余 {net:,.0f} 元，储蓄率 {sr}% 低于建议线 {SAVINGS_RATE_WARN_PCT}%"
+                ),
+                "suggestion": (
+                    "Review non-essential spending (see spending categories) and push the savings rate above 20%."
+                    if en
+                    else "梳理非必要支出（可看支出分类），把储蓄率提到 20% 以上。"
+                ),
             })
         elif sr >= 20:
             dims.append({
                 "key": "cashflow",
-                "title": "现金流",
+                "title": "Cash flow" if en else "现金流",
                 "status": "good",
-                "detail": f"本月结余 {net:,.0f} 元，储蓄率 {sr}%，处于健康区间。",
+                "detail": (
+                    f"Net this month {net:,.0f} CNY, savings rate {sr}% — healthy range."
+                    if en
+                    else f"本月结余 {net:,.0f} 元，储蓄率 {sr}%，处于健康区间。"
+                ),
                 "suggestion": "",
             })
 
@@ -505,19 +536,25 @@ def health_check(
         dti = ledger.get("dti_pct", 0)
         high = ledger.get("high_rate_debts") or []
         if dti > DTI_WARN_PCT or high:
+            detail_zh = f"负债月供占收入 {dti}%（建议线 {DTI_WARN_PCT}%）" + (f"，存在高息负债：{high[0]['name']}" if high else "")
+            detail_en = f"Debt payments are {dti}% of income (target {DTI_WARN_PCT}%)" + (f", high-interest debt: {high[0]['name']}" if high else "")
             dims.append({
                 "key": "debt",
-                "title": "负债健康",
+                "title": "Debt health" if en else "负债健康",
                 "status": "warn" if not high else "bad",
-                "detail": f"负债月供占收入 {dti}%（建议线 {DTI_WARN_PCT}%）" + (f"，存在高息负债：{high[0]['name']}" if high else ""),
-                "suggestion": "优先偿还高息负债（如信用卡分期），再考虑新增负债。",
+                "detail": detail_en if en else detail_zh,
+                "suggestion": (
+                    "Pay off high-interest debt first (e.g. credit-card installments), then consider new debt."
+                    if en
+                    else "优先偿还高息负债（如信用卡分期），再考虑新增负债。"
+                ),
             })
         elif ledger.get("debt_monthly", 0) == 0:
             dims.append({
                 "key": "debt",
-                "title": "负债健康",
+                "title": "Debt health" if en else "负债健康",
                 "status": "good",
-                "detail": "当前无负债月供，财务结构干净。",
+                "detail": "No debt payments — clean financial structure." if en else "当前无负债月供，财务结构干净。",
                 "suggestion": "",
             })
 
@@ -525,16 +562,26 @@ def health_check(
     em = (ledger or {}).get("emergency") or {}
     if em.get("has_data"):
         ok = em.get("ok", True)
+        detail_zh = (
+            f"应急金可覆盖 {em.get('months_covered')} 个月必要支出（目标 {em.get('target_months')} 个月）"
+            if ok
+            else f"应急金仅覆盖 {em.get('months_covered')} 个月，低于目标 {em.get('target_months')} 个月"
+        )
+        detail_en = (
+            f"Emergency fund covers {em.get('months_covered')} months of essential spending (target {em.get('target_months')} months)"
+            if ok
+            else f"Emergency fund covers only {em.get('months_covered')} months, below the {em.get('target_months')}-month target"
+        )
         dims.append({
             "key": "emergency",
-            "title": "应急金",
+            "title": "Emergency fund" if en else "应急金",
             "status": "good" if ok else "warn",
-            "detail": (
-                f"应急金可覆盖 {em.get('months_covered')} 个月必要支出（目标 {em.get('target_months')} 个月）"
-                if ok
-                else f"应急金仅覆盖 {em.get('months_covered')} 个月，低于目标 {em.get('target_months')} 个月"
+            "detail": detail_en if en else detail_zh,
+            "suggestion": "" if ok else (
+                "Top up the emergency fund with monthly surplus before other goals."
+                if en
+                else "每月结余优先补足应急金，再谈其它目标。"
             ),
-            "suggestion": "" if ok else "每月结余优先补足应急金，再谈其它目标。",
         })
 
     # 5) 目标进度
@@ -544,23 +591,33 @@ def health_check(
         on_going = [g for g in gs if not g["done"]]
         if on_going:
             slow = [g for g in on_going if g.get("months_left") and g["monthly_suggest"] and g["monthly_suggest"] > (ledger or {}).get("net", 0)]
+            detail_zh = (
+                f"{len(done)} 个目标已完成；"
+                + "、".join(f"{g['name']} {g['pct']}%" for g in on_going[:3])
+                + ("（按当前结余，部分目标可能赶不上截止日）" if slow else "")
+            )
+            detail_en = (
+                f"{len(done)} goal(s) achieved; "
+                + ", ".join(f"{g['name']} {g['pct']}%" for g in on_going[:3])
+                + (" (some goals may miss their deadline at the current net)" if slow else "")
+            )
             dims.append({
                 "key": "goals",
-                "title": "目标进度",
+                "title": "Goal progress" if en else "目标进度",
                 "status": "warn" if slow else "good",
-                "detail": (
-                    f"{len(done)} 个目标已完成；"
-                    + "、".join(f"{g['name']} {g['pct']}%" for g in on_going[:3])
-                    + ("（按当前结余，部分目标可能赶不上截止日）" if slow else "")
+                "detail": detail_en if en else detail_zh,
+                "suggestion": "" if not slow else (
+                    "Increase monthly saving or extend goal deadlines."
+                    if en
+                    else "提高每月储蓄或延后目标截止月。"
                 ),
-                "suggestion": "" if not slow else "提高每月储蓄或延后目标截止月。",
             })
         else:
             dims.append({
                 "key": "goals",
-                "title": "目标进度",
+                "title": "Goal progress" if en else "目标进度",
                 "status": "good",
-                "detail": "全部目标已达成。",
+                "detail": "All goals achieved." if en else "全部目标已达成。",
                 "suggestion": "",
             })
 
@@ -571,7 +628,11 @@ def health_check(
             "score": 0,
             "dimensions": [],
             "flags": flags_texts,
-            "summary": "数据不足：记几笔账、加几条持仓后体检才有意义",
+            "summary": (
+                "Not enough data: record a few transactions and holdings for a meaningful check"
+                if en
+                else "数据不足：记几笔账、加几条持仓后体检才有意义"
+            ),
         }
     score = max(0, 100 - 20 * len([d for d in dims if d["status"] != "good"]))
     return {
@@ -579,8 +640,9 @@ def health_check(
         "dimensions": dims,
         "flags": flags_texts,
         "summary": (
-            "整体健康" if all(d["status"] == "good" for d in dims)
-            else "有几项需要关注，按建议逐条处理即可"
+            "overall healthy"
+            if all(d["status"] == "good" for d in dims)
+            else ("some areas need attention, handle them one by one" if en else "有几项需要关注，按建议逐条处理即可")
         ),
     }
 
@@ -588,13 +650,6 @@ def health_check(
 HEALTH_WORDS = ("体检", "健康检查", "哪里需要改进", "财务状况怎么样", "综合评分")
 
 
-HEALTH_DIM_TITLES_EN = {
-    "portfolio": "Asset mix",
-    "cashflow": "Cash flow",
-    "debt": "Debt health",
-    "emergency": "Emergency fund",
-    "goals": "Goal progress",
-}
 HEALTH_STATUS_EN = {"good": "Healthy", "warn": "Attention", "bad": "Risk"}
 
 
@@ -615,15 +670,13 @@ def health_report_text(report: dict[str, Any], lang: str = "zh") -> str:
                 line += f"\n  建议：{d['suggestion']}"
             lines.append(line)
         return "\n".join(lines)
-    summary_en = "overall healthy" if report["summary"] == "整体健康" else "some areas need attention, handle them one by one"
-    lines = [f"Financial health score: {report['score']} ({summary_en})."]
+    lines = [f"Financial health score: {report['score']} ({report['summary']})."]
     if not report["dimensions"]:
         lines.append("Not enough data for itemized assessment — record a few transactions and holdings, then check again.")
         return "\n".join(lines)
     for d in report["dimensions"]:
-        title = HEALTH_DIM_TITLES_EN.get(d["key"], d["title"])
         status = HEALTH_STATUS_EN.get(d["status"], d["status"])
-        line = f"- {title} ({status}): {d['detail']}"
+        line = f"- {d['title']} ({status}): {d['detail']}"
         if d.get("suggestion"):
             line += f"\n  Suggestion: {d['suggestion']}"
         lines.append(line)

@@ -393,4 +393,5 @@ export const en: Record<string, string> = {
   "app.deleteTitle": "Delete this session?",
   "app.deleteDesc": "This session's Q&A history will be permanently removed.",
   "app.delete": "Delete",
+  "hc.locale": "en",
 };

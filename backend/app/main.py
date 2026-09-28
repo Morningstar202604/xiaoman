@@ -525,11 +525,12 @@ async def clear_memory() -> dict:
 
 
 @app.get("/api/health-check")
-async def health_check() -> dict:
+async def health_check(lang: str = "zh") -> dict:
+    lang = lang.strip() or "zh"
     positions = await db.list_positions()
     # 空库保护与图内一致：没有任何持仓/流水时不给「分数体检」假象
     if not positions and not await db.fetch_all("SELECT 1 FROM transactions LIMIT 1"):
-        return analysis.health_check(None, None, [], await db.list_goals())
+        return analysis.health_check(None, None, [], await db.list_goals(), lang=lang)
     live = await quotes.live_quotes(positions)
     settings = await db.get_settings()
     m = analysis.market_view(positions, live)
@@ -542,7 +543,7 @@ async def health_check() -> dict:
         live,
     )
     flags = analysis.risk_checks(m, led)
-    return analysis.health_check(m, led, flags, await db.list_goals())
+    return analysis.health_check(m, led, flags, await db.list_goals(), lang=lang)
 
 
 @app.post("/api/portfolio/reset")
