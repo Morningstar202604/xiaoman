@@ -719,6 +719,7 @@ async def ask(payload: dict):
         return JSONResponse({"error": "question required"}, status_code=400)
     thread_id = ((payload or {}).get("thread_id") or "").strip() or uuid.uuid4().hex
     regenerate = bool((payload or {}).get("regenerate"))
+    lang = ((payload or {}).get("lang") or "zh").strip() or "zh"
 
     async def runner(emit) -> None:
         # 重新生成：先移除该会话最后一条问答，再以同一问题重新作答（替换而非追加）
@@ -727,7 +728,7 @@ async def ask(payload: dict):
                 await db.delete_last_run(thread_id, question)
             except Exception:  # noqa: BLE001 — 删除失败则退化为普通追加
                 log.exception("delete_last_run failed")
-        result = await service.run_question(question, emit, thread_id=thread_id)
+        result = await service.run_question(question, emit, thread_id=thread_id, lang=lang)
         try:
             await db.save_run(
                 thread_id=thread_id,

@@ -7,15 +7,16 @@ import {
 } from "lucide-react";
 import { BrandLogo, BRAND } from "@/lib/brand";
 import { store } from "@/lib/store";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { SessionItem } from "@/lib/types";
 
 type SidebarTab = "dashboard" | "chat" | "ledger" | "settings";
 
-const NAV: { id: SidebarTab; label: string; icon: typeof LayoutDashboard }[] = [
-  { id: "chat", label: "问答", icon: MessageSquare },
-  { id: "ledger", label: "记账", icon: NotebookPen },
-  { id: "dashboard", label: "总览", icon: LayoutDashboard },
+const NAV: { id: SidebarTab; labelKey: string; icon: typeof LayoutDashboard }[] = [
+  { id: "chat", labelKey: "sidebar.chat", icon: MessageSquare },
+  { id: "ledger", labelKey: "sidebar.ledger", icon: NotebookPen },
+  { id: "dashboard", labelKey: "sidebar.dashboard", icon: LayoutDashboard },
 ];
 
 export function SessionSidebar({
@@ -38,6 +39,7 @@ export function SessionSidebar({
   onRename: (id: number, title: string) => void;
   onOpenSettings: () => void;
 }) {
+  const { t } = useI18n();
   const { sessions } = store.useApp();
   const [editing, setEditing] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -63,7 +65,7 @@ export function SessionSidebar({
         <BrandLogo size={30} />
         <span>
           <span className="block text-sm font-bold leading-tight">{BRAND.name}</span>
-          <span className="block text-[11px] text-muted-foreground leading-tight">{BRAND.tagline}</span>
+          <span className="block text-[11px] text-muted-foreground leading-tight">{t("brand.tagline")}</span>
         </span>
       </button>
 
@@ -84,7 +86,7 @@ export function SessionSidebar({
             onClick={() => go(n.id)}
           >
             <n.icon className="w-4 h-4" />
-            {n.label}
+            {t(n.labelKey)}
           </button>
         ))}
       </nav>
@@ -93,12 +95,12 @@ export function SessionSidebar({
       <div className="mt-4 flex-1 min-h-0 flex flex-col">
         <div className="flex items-center justify-between px-4 mb-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            会话
+            {t("sidebar.sessions")}
           </span>
           <button
             type="button"
             className="text-muted-foreground hover:text-primary p-1"
-            aria-label="新建会话"
+            aria-label={t("sidebar.newSession")}
             onClick={onNew}
           >
             <Plus className="w-4 h-4" />
@@ -113,8 +115,8 @@ export function SessionSidebar({
                 type="search"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="搜索会话"
-                aria-label="搜索会话"
+                placeholder={t("sidebar.searchSession")}
+                aria-label={t("sidebar.searchSession")}
                 className="w-full rounded-lg border border-input bg-background pl-8 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -124,11 +126,11 @@ export function SessionSidebar({
           {filtered.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-muted-foreground">
               <MessageCircle className="w-4 h-4 mx-auto mb-1.5 opacity-60" />
-              {q.trim() ? "没有匹配的会话" : "还没有会话"}
+              {q.trim() ? t("sidebar.noMatch") : t("sidebar.noSessions")}
               {!q.trim() && (
                 <>
                   <br />
-                  点右上角 + 开始
+                  {t("sidebar.startHint")}
                 </>
               )}
             </div>
@@ -165,7 +167,7 @@ export function SessionSidebar({
                     <span className="hidden group-hover:flex items-center gap-0.5 shrink-0">
                       <button
                         type="button"
-                        aria-label="重命名"
+                        aria-label={t("sidebar.rename")}
                         className="p-0.5 text-muted-foreground hover:text-foreground"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -177,7 +179,7 @@ export function SessionSidebar({
                       </button>
                       <button
                         type="button"
-                        aria-label="删除会话"
+                        aria-label={t("sidebar.deleteSession")}
                         className="p-0.5 text-muted-foreground hover:text-red-600"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -203,10 +205,10 @@ export function SessionSidebar({
           onClick={onOpenSettings}
         >
           <Settings className="w-4 h-4" />
-          设置
+          {t("sidebar.settings")}
         </button>
         <div className="px-3 pt-1 text-[10px] text-muted-foreground/70">
-          {sessions.length} 个会话 · 数据存于本地
+          {sessions.length} {t("sidebar.sessionCount")} · {t("sidebar.localData")}
         </div>
       </div>
     </div>

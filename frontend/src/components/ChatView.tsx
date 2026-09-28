@@ -11,6 +11,7 @@ import { BrandLogo, BRAND } from "@/lib/brand";
 import { api, apiStream } from "@/lib/api";
 import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
+import { useI18n } from "@/lib/i18n";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AgentToolStep, AnswerMeta, RunRecord } from "@/lib/types";
@@ -22,18 +23,19 @@ interface StepInfo {
 }
 
 /** 工具名 → 用户能看懂的动作（工具名是内部契约，不出口） */
-const TOOL_LABELS: Record<string, string> = {
-  get_market_view: "查看持仓",
-  get_ledger_view: "核对账本",
-  get_risk_flags: "风控扫描",
-  get_budget: "查预算",
-  get_trend: "查收支趋势",
-  record_transaction: "记账",
-  get_kline: "查K线",
+const TOOL_LABEL_KEYS: Record<string, string> = {
+  get_market_view: "chat.toolMarket",
+  get_ledger_view: "chat.toolLedger",
+  get_risk_flags: "chat.toolRisk",
+  get_budget: "chat.toolBudget",
+  get_trend: "chat.toolTrend",
+  record_transaction: "chat.toolRecord",
+  get_kline: "chat.toolKline",
 };
 
-function toolLabel(name: string): string {
-  return TOOL_LABELS[name] ?? name;
+function toolLabel(tr: (k: string) => string, name: string): string {
+  const k = TOOL_LABEL_KEYS[name];
+  return k ? tr(k) : name;
 }
 
 interface ChatMessage {
@@ -50,36 +52,32 @@ interface ChatMessage {
   created_at?: string;
 }
 
-const BASE_SUGGESTIONS = [
-  "帮我体检一下财务状况",
-  "我这个月的钱都花到哪了？",
-  "帮我看看持仓有什么风险",
-  "我的组合现在赚还是亏？",
+const BASE_SUGGESTION_KEYS = [
+  "chat.sHealth",
+  "chat.sSpend",
+  "chat.sRisk",
+  "chat.sPnl",
 ];
 
 /** 无数据时的引导建议：不假设用户已有持仓/账本（chat-first 首屏）。 */
 /** 默认路径是通用 agent：空态建议体现"什么都能问"，财务与记账只是其中两件事。 */
-const GENERIC_SUGGESTIONS = [
-  "帮我把这周的计划理一理",
-  "这段话怎么改得更专业？",
-  "午饭 35 元",
+const GENERIC_SUGGESTION_KEYS = [
+  "chat.sGenericPlan",
+  "chat.sGenericRewrite",
+  "chat.sRecord",
 ];
 
 /** 依据仪表盘风险项生成针对性追问（贴合当前数据，不是固定文案）。
  *  注意：后端 risk_checks 的 code 全大写（CONCENTRATION 等），这里必须一一对应。 */
 function dynamicSuggestions(flags: RunRecord["flags"]): string[] {
   const map: Record<string, string> = {
-    CONCENTRATION: "持仓太集中，怎么分散风险？",
-    HIGH_RATE_DEBT: "高息负债怎么还更划算？",
-    SAVINGS_RATE: "储蓄率偏低，怎么改善？",
-    EMERGENCY_FUND: "应急金不足，怎么补？",
-    DTI: "负债收入比偏高，需要注意什么？",
+    CONCENTRATION: "chat.qConcentration",
+    HIGH_RATE_DEBT: "chat.qHighRateDebt",
+    SAVINGS_RATE: "chat.qSavingsRate",
+    EMERGENCY_FUND: "chat.qEmergencyFund",
+    DTI: "chat.qDti",
   };
-  const out: string[] = [];
-  for (const f of flags.slice(0, 2)) {
-    if (map[f.code]) out.push(map[f.code]);
-  }
-  return out;
+  return flags.slice(0, 2).filter((f) => map[f.code]).map((f) => map[f.code]);
 }
 
 let msgSeq = 1;
@@ -99,6 +97,7 @@ export function ChatView({
 }) {
   const { dashboard, bootstrap, sessions } = store.useApp();
   const { toast } = useToast();
+  const { t: tr } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -214,7 +213,7 @@ export function ChatView({
     try {
       await apiStream(
         "/api/ask",
-        { question: q, thread_id: threadId, regenerate: regen },
+        { question: q, thread_id: threadId, regenerate: regen, lang: tr("chat.locale") },
         (ev) => {
           switch (ev.type) {
             case "text":
@@ -276,7 +275,7 @@ export function ChatView({
     const w = window as unknown as Record<string, unknown>;
     const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) {
-      toast("当前浏览器不支持语音输入（建议使用 Chrome/Edge）", "info");
+      toast(tr("chat.voiceUnsupported"), "info");
       return;
     }
     if (listening) {
@@ -306,21 +305,21 @@ export function ChatView({
       recogRef.current = rec;
       rec.start();
       setListening(true);
-      toast("正在聆听，请说话…", "info");
+      toast(tr("chat.voiceListening"), "info");
     } catch {
       setListening(false);
-      toast("语音输入启动失败", "error");
+      toast(tr("chat.voiceFail"), "error");
     }
   };
 
   /** 把「问题 + 回答」导出为 Markdown（复制 / 下载） */
   const exportAnswer = async (m: ChatMessage, action: "copy" | "download") => {
     const md = [
-      `# ${BRAND.name} · 问答记录`,
+      `# ${BRAND.name} · Q&A Log`,
       ``,
-      `**问题**：${m.q ?? ""}`,
+      `**Q**: ${m.q ?? ""}`,
       ``,
-      `**时间**：${new Date().toLocaleString("zh-CN")}`,
+      `**Time**: ${new Date().toLocaleString(tr("chat.locale") === "zh" ? "zh-CN" : "en-US")}`,
       ``,
       `---`,
       ``,
@@ -328,12 +327,12 @@ export function ChatView({
       ``,
       `---`,
       ``,
-      `*由${BRAND.name}（${BRAND.tagline}）基于你的本地数据生成，不构成投资建议。*`,
+      `*${tr("chat.mdFooter", { name: BRAND.name })}*`,
     ].join("\n");
     try {
       if (action === "copy") {
         await navigator.clipboard.writeText(md);
-        toast("已复制到剪贴板", "ok");
+        toast(tr("chat.copied"), "ok");
       } else {
         const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
         const a = document.createElement("a");
@@ -341,10 +340,10 @@ export function ChatView({
         a.download = `${BRAND.name}-${new Date().toISOString().slice(0, 10)}.md`;
         a.click();
         URL.revokeObjectURL(a.href);
-        toast("已下载 Markdown", "ok");
+        toast(tr("chat.downloaded"), "ok");
       }
     } catch {
-      toast("导出失败", "error");
+      toast(tr("chat.exportFail"), "error");
     }
   };
 
@@ -353,8 +352,8 @@ export function ChatView({
     (dashboard?.positions.length ?? 0) > 0 || (dashboard?.transactions.length ?? 0) > 0;
   const suggestions = suggestionsOn
     ? hasData
-      ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTIONS].slice(0, 6)
-      : GENERIC_SUGGESTIONS
+      ? [...dynamicSuggestions(dashboard?.flags ?? []), ...BASE_SUGGESTION_KEYS].slice(0, 6)
+      : GENERIC_SUGGESTION_KEYS
     : [];
 
   return (
@@ -368,7 +367,7 @@ export function ChatView({
             onClick={() => setShowSessions((v) => !v)}
           >
             <MessageCircle className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">当前会话</span>
+            <span className="truncate">{tr("chat.currentSession")}</span>
             <ChevronDown className={cn("w-3 h-3 shrink-0 transition-transform", showSessions && "rotate-180")} />
           </button>
           {showSessions && (
@@ -386,15 +385,15 @@ export function ChatView({
                       type="search"
                       value={sessionSearch}
                       onChange={(e) => setSessionSearch(e.target.value)}
-                      placeholder="搜索会话"
-                      aria-label="搜索会话"
+                      placeholder={tr("sidebar.searchSession")}
+                      aria-label={tr("sidebar.searchSession")}
                       className="w-full rounded-lg border border-input bg-background pl-8 pr-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 )}
                 {filteredSessions.length === 0 ? (
                   <div className="px-3 py-3 text-xs text-muted-foreground">
-                    {sessionSearch.trim() ? "没有匹配的会话" : "还没有会话"}
+                    {sessionSearch.trim() ? tr("sidebar.noMatch") : tr("sidebar.noSessions")}
                   </div>
                 ) : (
                   filteredSessions.slice(0, 30).map((s) => (
@@ -421,7 +420,7 @@ export function ChatView({
           )}
         </div>
         <Button variant="ghost" size="sm" onClick={onNewSession}>
-          <Sparkles className="w-3.5 h-3.5" /> 新会话
+          <Sparkles className="w-3.5 h-3.5" /> {tr("chat.newSession")}
         </Button>
       </div>
 
@@ -436,27 +435,27 @@ export function ChatView({
               <>
                 {/* 大标题收紧字距、拉开层级：标题本身参与构图，不只是放大的正文 */}
                 <h1 className="text-2xl sm:text-[28px] font-semibold tracking-tight leading-[1.2] text-balance">
-                  问你的钱，这里都有答案
+                  {tr("chat.heroQuestion")}
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed text-balance">
-                  基于你的持仓与账本，回答关于盈亏、支出、负债和风险的问题。
+                  {tr("chat.heroDesc")}
                 </p>
               </>
             ) : (
               <>
                 <h1 className="text-2xl sm:text-[28px] font-semibold tracking-tight leading-[1.2] text-balance">
-                  我是{BRAND.name}
+                  {tr("chat.heroTitle", { name: BRAND.name })}
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed text-balance">
-                  没有数据也能聊：先随便问问，或去「记账」记下第一笔，再让我帮你分析。
+                  {tr("chat.heroEmptyDesc")}
                 </p>
               </>
             )}
             {suggestions.length > 0 && (
               <div className="mt-5 flex flex-col gap-2 max-w-sm mx-auto">
-                {suggestions.map((s) => (
-                  <Button key={s} variant="outline" onClick={() => send(s)} disabled={busy}>
-                    {s}
+                {suggestions.map((sk) => (
+                  <Button key={sk} variant="outline" onClick={() => send(tr(sk))} disabled={busy}>
+                    {tr(sk)}
                   </Button>
                 ))}
               </div>
@@ -475,25 +474,25 @@ export function ChatView({
                 /* 账本的行：左侧一条竖线标来源，正文直接落在页面上，不再套白卡 */
                 <div className="border-l-2 border-border pl-3.5 sm:pl-4">
                   {m.error ? (
-                    <div className="text-sm text-red-600 dark:text-red-400">出错了：{m.error}</div>
+                    <div className="text-sm text-red-600 dark:text-red-400">{tr("chat.error")}: {m.error}</div>
                   ) : m.text === "" ? (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" /> 正在分析…
+                      <Loader2 className="w-4 h-4 animate-spin" /> {tr("chat.analyzing")}
                     </div>
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-2 mb-1.5">
                         <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                          {m.meta?.llm === "llm" && <Badge variant="default">AI 生成</Badge>}
-                          {m.meta?.llm === "template" && <Badge variant="muted">内置分析</Badge>}
-                          <span>{m.created_at ? fmtDate(m.created_at) : "刚刚"}</span>
+                          {m.meta?.llm === "llm" && <Badge variant="default">{tr("chat.badgeAi")}</Badge>}
+                          {m.meta?.llm === "template" && <Badge variant="muted">{tr("chat.badgeRule")}</Badge>}
+                          <span>{m.created_at ? fmtDate(m.created_at) : tr("chat.justNow")}</span>
                         </span>
                         <span className="flex items-center gap-1">
                           <button
                             type="button"
                             className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
-                            aria-label="重新生成回答"
-                            title="重新生成"
+                            aria-label={tr("chat.regenerate")}
+                            title={tr("chat.regenerate")}
                             disabled={busy}
                             onClick={() => void send(m.q ?? "", { regenerate: true })}
                           >
@@ -504,7 +503,7 @@ export function ChatView({
                               <button
                                 type="button"
                                 className="p-1 text-muted-foreground hover:text-foreground"
-                                aria-label="复制 Markdown"
+                                aria-label={tr("chat.copyMd")}
                                 onClick={() => void exportAnswer(m, "copy")}
                               >
                                 <Copy className="w-3.5 h-3.5" />
@@ -512,7 +511,7 @@ export function ChatView({
                               <button
                                 type="button"
                                 className="p-1 text-muted-foreground hover:text-foreground"
-                                aria-label="下载 Markdown"
+                                aria-label={tr("chat.downloadMd")}
                                 onClick={() => void exportAnswer(m, "download")}
                               >
                                 <Download className="w-3.5 h-3.5" />
@@ -533,7 +532,7 @@ export function ChatView({
                             <div key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
                               <Wrench className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
                               <span>
-                                <b className="text-foreground/80">{toolLabel(t.name)}</b>
+                                <b className="text-foreground/80">{toolLabel(tr, t.name)}</b>
                                 {t.summary ? <span className="ml-1">{t.summary}</span> : null}
                               </span>
                             </div>
@@ -547,7 +546,7 @@ export function ChatView({
                             className="text-xs text-muted-foreground inline-flex items-center gap-1 hover:text-foreground"
                             onClick={() => setShowSteps((v) => !v)}
                           >
-                            查看分析过程
+                            {tr("chat.viewSteps")}
                             {showSteps ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                           </button>
                           {showSteps && (
@@ -580,13 +579,13 @@ export function ChatView({
           /* 移动端只留一句（横幅曾占两行、挤掉输入区），完整说明留给 ≥sm */
           <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
             <span className="min-w-0">
-              <span className="sm:hidden">未接入 AI，自由问答需先配置模型</span>
+              <span className="sm:hidden">{tr("chat.noAiShort")}</span>
               <span className="hidden sm:inline">
-                AI 未接入：自由问答需先在设置里配置模型；当前由内置分析回答财务问题。
+                {tr("chat.noAiLong")}
               </span>
             </span>
             <Button variant="outline" size="sm" className="h-6 shrink-0 px-2" onClick={onOpenSettings}>
-              去接入
+              {tr("chat.goSetup")}
             </Button>
           </div>
         )}
@@ -595,7 +594,7 @@ export function ChatView({
             <Button
               variant={listening ? "default" : "ghost"}
               size="icon"
-              aria-label="语音输入"
+              aria-label={tr("chat.voiceInput")}
               onClick={toggleVoice}
               className={listening ? "animate-pulse-ring" : ""}
             >
@@ -612,11 +611,11 @@ export function ChatView({
               }
             }}
             rows={1}
-            placeholder="问点什么，比如：这个月开销怎么样？"
+            placeholder={tr("chat.inputPh")}
             className="flex-1 resize-none rounded-xl border border-input bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] max-h-32"
           />
           {busy ? (
-            <Button size="icon" variant="outline" onClick={stop} aria-label="停止回答">
+            <Button size="icon" variant="outline" onClick={stop} aria-label={tr("chat.stop")}>
               <Square className="w-4 h-4" />
             </Button>
           ) : (
@@ -626,7 +625,7 @@ export function ChatView({
           )}
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
-          Enter 发送 · Shift+Enter 换行{voiceOn ? " · 点麦克风语音提问" : ""}
+          {tr("chat.inputHint")}{voiceOn ? tr("chat.voiceHint") : ""}
         </div>
       </div>
     </div>

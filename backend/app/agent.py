@@ -102,6 +102,7 @@ async def run_agent(
     question: str,
     emit: Emit,
     history: list[dict[str, str]] | None = None,
+    lang: str = "zh",
 ) -> dict[str, Any]:
     """跑一轮 agent：模型自主调用工具后成文。失败抛 AgentUnavailable。"""
     cfg = await llm._config()  # noqa: SLF001 — 同一包内复用配置读取
@@ -109,8 +110,10 @@ async def run_agent(
         raise AgentUnavailable("未接入模型")
 
     client = llm._sdk(cfg, timeout=60.0, **(llm._client_kwargs or {}))  # noqa: SLF001
+    lang_rule = "请用简体中文回答用户的问题。" if lang == "zh" else "Answer the user in English."
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": AGENT_SYSTEM},
+        {"role": "system", "content": lang_rule},
     ]
     if history:
         messages.append(

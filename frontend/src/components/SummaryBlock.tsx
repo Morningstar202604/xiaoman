@@ -2,30 +2,32 @@ import { Badge } from "@/components/ui/badge";
 import { fmtMoney, pnlClass } from "@/lib/format";
 import type { AnswerMeta } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 /** 回答尾部摘要：等级 + 关键数字 + 风险提示（全部来自后端 final 事件，口径唯一）。 */
 export function SummaryBlock({ meta }: { meta: AnswerMeta }) {
+  const { t } = useI18n();
   const m = meta.metrics;
   const chips: { label: string; value: string; cls?: string }[] = [];
   if (m.total_market_value != null)
-    chips.push({ label: "总市值", value: fmtMoney(m.total_market_value) });
+    chips.push({ label: t("summary.marketValue"), value: fmtMoney(m.total_market_value) });
   if (m.total_pnl != null)
     chips.push({
-      label: "累计盈亏",
+      label: t("summary.totalPnl"),
       value: fmtMoney(m.total_pnl, true),
       cls: pnlClass(m.total_pnl),
     });
-  if (m.net != null) chips.push({ label: "本月结余", value: fmtMoney(m.net, true) });
-  if (m.savings_rate != null) chips.push({ label: "储蓄率", value: `${m.savings_rate}%` });
+  if (m.net != null) chips.push({ label: t("summary.monthlyNet"), value: fmtMoney(m.net, true) });
+  if (m.savings_rate != null) chips.push({ label: t("summary.savingsRate"), value: `${m.savings_rate}%` });
   if (m.debt_monthly != null)
-    chips.push({ label: "负债月供", value: `${fmtMoney(m.debt_monthly)}/月` });
+    chips.push({ label: t("summary.debtMonthly"), value: `${fmtMoney(m.debt_monthly)}/mo` });
 
   // 内部等级代号不出口：L2 建议 / L1 洞察 / 已记账 → 用户能懂的话。
   // 通用闲聊（level 为空）不套财务分级，因此这里也不给标签。
   const LEVEL_TEXT: Record<string, string> = {
-    "L2 建议": "需要处理",
-    "L1 洞察": "数据洞察",
-    "已记账": "已记账",
+    "L2 建议": t("summary.l2"),
+    "L1 洞察": t("summary.l1"),
+    "已记账": t("summary.recorded"),
   };
   const levelText = LEVEL_TEXT[meta.level] ?? meta.level;
   const isAlert = meta.level === "L2 建议";
@@ -41,11 +43,11 @@ export function SummaryBlock({ meta }: { meta: AnswerMeta }) {
           {/* 来源只在拿得到时才说：来源未知的旧记录不能替它断言 */}
           {meta.llm && (
             <span className="text-xs text-muted-foreground">
-              {meta.llm === "llm" ? "模型作答" : "由确定性规则算出"}
+              {meta.llm === "llm" ? t("summary.llmAnswer") : t("summary.ruleAnswer")}
             </span>
           )}
           {meta.tools && meta.tools.length > 0 && (
-            <span className="text-xs text-muted-foreground">调用 {meta.tools.length} 个工具</span>
+            <span className="text-xs text-muted-foreground">{t("summary.tools", { n: meta.tools.length })}</span>
           )}
         </div>
       )}

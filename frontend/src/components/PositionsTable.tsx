@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useEChart, axisLabelColor } from "@/lib/charts";
 import { useTheme } from "@/lib/theme";
 import type { Position } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 
 type SortKey = "weight" | "market_value" | "pnl" | "pnl_pct";
 
@@ -23,6 +24,7 @@ export function PositionsTable({
   className?: string;
   compact?: boolean;
 }) {
+  const { t: tr } = useI18n();
   const [sortKey, setSortKey] = useState<SortKey>("market_value");
   const [desc, setDesc] = useState(true);
   const [klineSymbol, setKlineSymbol] = useState<string | null>(null);
@@ -66,13 +68,13 @@ export function PositionsTable({
         <table className="w-full border-collapse text-xs" style={{ fontVariantNumeric: "tabular-nums" }}>
           <thead>
             <tr className="border-b border-border bg-muted/50">
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">标的</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">类型</th>
-              <SortHead k="weight" label="占比" />
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">现价</th>
-              <SortHead k="market_value" label="市值" />
-              <SortHead k="pnl" label="盈亏" />
-              <SortHead k="pnl_pct" label="盈亏%" />
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">{tr("pos.symbol")}</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">{tr("pos.kind")}</th>
+              <SortHead k="weight" label={tr("pos.weight")} />
+              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">{tr("pos.price")}</th>
+              <SortHead k="market_value" label={tr("pos.marketValue")} />
+              <SortHead k="pnl" label={tr("pos.pnl")} />
+              <SortHead k="pnl_pct" label={`${tr("pos.pnl")}%`} />
             </tr>
           </thead>
           <tbody>
@@ -83,7 +85,7 @@ export function PositionsTable({
                     type="button"
                     className="text-left group inline-flex items-center gap-1"
                     onClick={() => setKlineSymbol(r.symbol)}
-                    aria-label={`查看 ${r.name} K线`}
+                    aria-label={tr("pos.viewK", { name: r.name })}
                   >
                     <span className="font-medium text-foreground group-hover:text-primary">{r.name}</span>
                     <span className="text-[10px] text-muted-foreground">{r.symbol}</span>
@@ -110,7 +112,7 @@ export function PositionsTable({
             {computed.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-2 py-3 text-center text-muted-foreground">
-                  暂无持仓数据
+                  {tr("pos.empty")}
                 </td>
               </tr>
             )}
@@ -144,6 +146,7 @@ function KlineDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t: tr } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const { resolved } = useTheme();
   const [state, setState] = useState<{ loading: boolean; error?: string; points: KlinePoint[]; source?: string }>({
@@ -223,7 +226,7 @@ function KlineDialog({
               <button
                 type="button"
                 className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
-                aria-label="关闭"
+                aria-label={tr("pos.close")}
               >
                 ✕
               </button>
@@ -232,18 +235,18 @@ function KlineDialog({
           <div className="mt-3">
             {state.loading ? (
               <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin mr-2" /> 加载行情中…
+                <Loader2 className="w-4 h-4 animate-spin mr-2" /> {tr("pos.loading")}
               </div>
             ) : state.error || !state.points.length ? (
               <div className="flex h-52 items-center justify-center text-xs text-muted-foreground px-4 text-center">
-                {state.error || "暂无可用的 A 股/ETF 行情（基金/现金类持仓暂无 K 线）"}
+                {state.error || tr("pos.noKline")}
               </div>
             ) : (
               <>
                 <div ref={ref} className="h-56 w-full" />
                 <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>
-                    近 {state.points.length} 个交易日收盘价 · {state.source === "snapshot" ? "快照行情" : "实时行情"}
+                    {tr("pos.klineInfo", { n: state.points.length })} · {state.source === "snapshot" ? tr("pos.snapshot") : tr("pos.realtime")}
                   </span>
                   {state.points.length >= 2 && (
                     <span className={cn("tabular-nums", state.points[state.points.length - 1].close >= state.points[0].close ? "text-up" : "text-down")}>

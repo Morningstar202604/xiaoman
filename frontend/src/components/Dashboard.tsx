@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton, DashboardSkeleton } from "@/components/ui/skeleton";
 import { useEChart, usePalette, axisLabelColor } from "@/lib/charts";
 import { useTheme } from "@/lib/theme";
+import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { store } from "@/lib/store";
-import { fmtMoney, fmtPct, fmtMonth } from "@/lib/format";
+import { fmtMoney, fmtPct, fmtMonth, getMoneyLocale } from "@/lib/format";
 import { PositionsTable } from "@/components/PositionsTable";
 import { HealthCheckDialog } from "@/components/HealthCheckDialog";
 import type { DashboardData, TrendMonth, BudgetUsage } from "@/lib/types";
@@ -37,13 +38,14 @@ function StatCell({
 }
 
 function RiskBanner({ flags }: { flags: DashboardData["flags"] }) {
+  const { t: tr } = useI18n();
   /* 摘掉的配饰：原来这里是一只和统计卡/待扣提醒同款的白色圆角卡。
      4 项风险自己会说话，不需要第三个同款盒子——改成一段带竖线锚的列表。 */
   if (!flags.length) {
     return (
       <div className="flex items-center gap-2 border-l-2 border-emerald-500/60 pl-3 py-1 text-sm">
         <CheckCircle2 className="w-4 h-4 text-down shrink-0" />
-        <span className="text-down text-balance">未发现明显风险项，当前财务状况整体稳健。</span>
+        <span className="text-down text-balance">{tr("dash.noRisk")}</span>
       </div>
     );
   }
@@ -51,7 +53,7 @@ function RiskBanner({ flags }: { flags: DashboardData["flags"] }) {
     <div className="border-l-2 border-amber-500/70 pl-3 py-1">
       <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
         <AlertTriangle className="w-4 h-4 shrink-0" />
-        发现 {flags.length} 项需关注
+        {tr("dash.riskCount", { n: flags.length })}
       </div>
       <ul className="mt-1.5 space-y-1">
         {flags.map((f, i) => (
@@ -67,6 +69,7 @@ function RiskBanner({ flags }: { flags: DashboardData["flags"] }) {
 
 /** 近期待扣提醒：今天到期（红）与 3 天内到期（黄）的负债与订阅。 */
 function DueSoonStrip({ dashboard }: { dashboard: DashboardData }) {
+  const { t: tr } = useI18n();
   const today = new Date();
   const day = today.getDate();
   const monthLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
@@ -92,16 +95,16 @@ function DueSoonStrip({ dashboard }: { dashboard: DashboardData }) {
     <div className="rounded-[var(--radius)] border border-border bg-card px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-sm font-medium mb-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
-        近期待扣提醒（{monthLabel}）
+        {tr("dash.upcoming", { m: monthLabel })}
       </div>
       <div className="space-y-1.5">
         {dueToday.length > 0 && (
           <div className="border-l-2 border-red-500/70 pl-2.5">
-            <div className="text-xs font-medium text-red-600 dark:text-red-400">今天到期 · 共 {fmtMoney(totalToday, false)}</div>
+            <div className="text-xs font-medium text-red-600 dark:text-red-400">{tr("dash.dueToday", { v: fmtMoney(totalToday, false) })}</div>
             <div className="mt-0.5 flex gap-x-3 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
               {dueToday.map((i) => (
                 <span key={i.name} className="tabular-nums">
-                  {i.name} {fmtMoney(i.amount, false)}（{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
+                  {i.name} {fmtMoney(i.amount, false)}（{tr("dash.dueOn", { d: i.due })} {i.kind === "还款" ? tr("dash.repay") : tr("dash.charge")}）
                 </span>
               ))}
             </div>
@@ -109,11 +112,11 @@ function DueSoonStrip({ dashboard }: { dashboard: DashboardData }) {
         )}
         {dueSoon.length > 0 && (
           <div className="border-l-2 border-amber-500/70 pl-2.5">
-            <div className="text-xs font-medium text-amber-600 dark:text-amber-400">近 3 天内到期 · 共 {fmtMoney(totalSoon, false)}</div>
+            <div className="text-xs font-medium text-amber-600 dark:text-amber-400">{tr("dash.dueSoon", { v: fmtMoney(totalSoon, false) })}</div>
             <div className="mt-0.5 flex gap-x-3 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
               {dueSoon.map((i) => (
                 <span key={i.name} className="tabular-nums">
-                  {i.name} {fmtMoney(i.amount, false)}（{Number(i.due) < day ? "下月" : ""}{i.due} 号{i.kind === "还款" ? "还款" : "扣款"}）
+                  {i.name} {fmtMoney(i.amount, false)}（{Number(i.due) < day ? tr("dash.nextMonth") : ""}{tr("dash.dueOn", { d: i.due })} {i.kind === "还款" ? tr("dash.repay") : tr("dash.charge")}）
                 </span>
               ))}
             </div>
@@ -131,7 +134,7 @@ function AssetPie({ data }: { data: DashboardData }) {
   const option = useMemo(() => {
     const items = data.concentration.by_asset.filter((a) => a.pct > 0.5);
     return {
-      tooltip: { trigger: "item", triggerOn: "click", renderMode: "richText", confine: true, formatter: "{b}\n占比 {d}%" },
+      tooltip: { trigger: "item", triggerOn: "click", renderMode: "richText", confine: true, formatter: `{b}\n${getMoneyLocale() === "zh" ? "占比" : "Share"} {d}%` },
       legend: {
         type: "scroll",
         bottom: 0,
@@ -170,7 +173,7 @@ function ExpenseBar({ data }: { data: DashboardData }) {
       grid: { left: 8, right: 12, top: 14, bottom: 4, containLabel: true },
       xAxis: {
         type: "value",
-        axisLabel: { fontSize: 10, color: axisLabelColor(resolved), formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`) },
+        axisLabel: { fontSize: 10, color: axisLabelColor(resolved), formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}${getMoneyLocale() === "zh" ? "万" : "k"}` : `${v}`) },
         splitLine: { lineStyle: { type: "dashed", color: "hsl(var(--border))" } },
       },
       yAxis: { type: "category", data: cats.map((c) => c.category), axisLabel: { fontSize: 11, color: axisLabelColor(resolved) } },
@@ -205,26 +208,26 @@ function TrendChart({ trend }: { trend: TrendMonth[] }) {
       xAxis: { type: "category", data: months, axisLabel: { fontSize: 10, color: axisLabelColor(resolved) } },
       yAxis: {
         type: "value",
-        axisLabel: { fontSize: 10, color: axisLabelColor(resolved), formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}万` : `${v}`) },
+        axisLabel: { fontSize: 10, color: axisLabelColor(resolved), formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}${getMoneyLocale() === "zh" ? "万" : "k"}` : `${v}`) },
         splitLine: { lineStyle: { type: "dashed", color: "hsl(var(--border))" } },
       },
       series: [
         {
-          name: "收入",
+          name: getMoneyLocale() === "zh" ? "收入" : "Income",
           type: "bar",
           data: trend.map((t) => t.income),
           itemStyle: { color: palette[2], borderRadius: [4, 4, 0, 0] },
           barWidth: 12,
         },
         {
-          name: "支出",
+          name: getMoneyLocale() === "zh" ? "支出" : "Expense",
           type: "bar",
           data: trend.map((t) => t.expense),
           itemStyle: { color: palette[5], borderRadius: [4, 4, 0, 0] },
           barWidth: 12,
         },
         {
-          name: "结余",
+          name: getMoneyLocale() === "zh" ? "结余" : "Net",
           type: "line",
           data: trend.map((t) => t.net),
           symbolSize: 5,
@@ -239,22 +242,23 @@ function TrendChart({ trend }: { trend: TrendMonth[] }) {
 }
 
 function EmergencyCard({ data }: { data: DashboardData }) {
+  const { t: tr } = useI18n();
   const em = data.emergency;
   const pct = em.has_data && em.target_months ? Math.min(100, (em.months_covered / em.target_months) * 100) : 0;
   return (
     <Card className="p-[var(--card-pad)]">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">应急金</div>
+        <div className="text-sm font-medium">{tr("dash.emergency")}</div>
         {em.has_data ? (
-          <Badge variant={em.ok ? "ok" : "warn"}>{em.ok ? "达标" : "不足"}</Badge>
+          <Badge variant={em.ok ? "ok" : "warn"}>{em.ok ? tr("dash.onTrack") : tr("dash.short")}</Badge>
         ) : (
-          <Badge variant="muted">暂无数据</Badge>
+          <Badge variant="muted">{tr("dash.noData")}</Badge>
         )}
       </div>
       <div className="mt-3 flex items-baseline gap-1">
         <span className="text-2xl font-bold tabular-nums">{em.has_data ? em.months_covered : "—"}</span>
         <span className="text-sm text-muted-foreground">
-          {em.has_data ? `个月（目标 ${em.target_months} 个月）` : "本月无必要支出，暂无法估算"}
+          {em.has_data ? getMoneyLocale() === "zh" ? `个月（目标 ${em.target_months} 个月）` : `mo (target ${em.target_months} mo)` : tr("dash.estUnknown")}
         </span>
       </div>
       <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
@@ -264,7 +268,7 @@ function EmergencyCard({ data }: { data: DashboardData }) {
         />
       </div>
       <div className="mt-2 text-xs text-muted-foreground">
-        现金 {fmtMoney(em.cash)} / 必要月支出 {fmtMoney(em.essential_monthly)}
+        {tr("dash.cashVsEssential", { c: fmtMoney(em.cash), e: fmtMoney(em.essential_monthly) })}
       </div>
     </Card>
   );
@@ -272,6 +276,7 @@ function EmergencyCard({ data }: { data: DashboardData }) {
 
 /** 本月预算：总预算进度 + 剩余日均 + 分类进度；未设置预算时不占位 */
 function BudgetCard() {
+  const { t: tr } = useI18n();
   const [budget, setBudget] = useState<BudgetUsage | null>(null);
   const { bootstrap, refreshTick } = store.useApp();
   const compact = bootstrap?.settings.compact_numbers === "on";
@@ -291,8 +296,8 @@ function BudgetCard() {
   return (
     <Card className="p-[var(--card-pad)]">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">{budget.month} 预算</div>
-        <Badge variant={u.over ? "warn" : "ok"}>{u.over ? "已超支" : u.total_pct >= 80 ? "接近上限" : "进度正常"}</Badge>
+        <div className="text-sm font-medium">{tr("dash.budget", { m: budget.month })}</div>
+        <Badge variant={u.over ? "warn" : "ok"}>{u.over ? tr("dash.over") : u.total_pct >= 80 ? tr("dash.nearCap") : tr("dash.onPace")}</Badge>
       </div>
       <div className="mt-3 flex items-baseline gap-1">
         <span className="text-2xl font-bold tabular-nums">{fmtMoney(u.total_spent, false, compact)}</span>
@@ -302,9 +307,9 @@ function BudgetCard() {
         <div className={`h-full rounded-full ${barCls}`} style={{ width: `${Math.min(100, u.total_pct)}%` }} />
       </div>
       <div className="mt-2 text-xs text-muted-foreground">
-        {u.over ? `超支 ${fmtMoney(-u.left, false, compact)}` : `剩余 ${fmtMoney(u.left, false, compact)}`}
-        {" · 日均 "}
-        {u.over ? `超 ${fmtMoney(-u.left_daily, false, compact)}` : `可用 ${fmtMoney(u.left_daily, false, compact)}`}
+        {u.over ? `${tr("dash.overBy")} ${fmtMoney(-u.left, false, compact)}` : `${tr("dash.left")} ${fmtMoney(u.left, false, compact)}`}
+        {` · ${tr("dash.daily")} `}
+        {u.over ? `${tr("dash.overBy")} ${fmtMoney(-u.left_daily, false, compact)}` : `${tr("dash.available")} ${fmtMoney(u.left_daily, false, compact)}`}
       </div>
       {u.categories.filter((c) => c.budget > 0).length > 0 && (
         <ul className="mt-3 space-y-1.5">
@@ -314,7 +319,7 @@ function BudgetCard() {
                 <span>{c.category}</span>
                 <span className={c.over ? "text-red-500 font-medium" : ""}>
                   {fmtMoney(c.spent, false, compact)} / {fmtMoney(c.budget, false, compact)}
-                  {c.over ? " 超支" : ""}
+                  {c.over ? ` ${tr("dash.over")}` : ""}
                 </span>
               </div>
               <div className="mt-0.5 h-1.5 rounded-full bg-muted overflow-hidden">
@@ -333,22 +338,23 @@ function BudgetCard() {
 
 /** 目标卡：前 3 个目标进度 + 财务体检入口；无目标时只留体检按钮 */
 function GoalsCard({ goals, net }: { goals: DashboardData["goals"]; net: number }) {
+  const { t: tr } = useI18n();
   const [healthOpen, setHealthOpen] = useState(false);
   const top = goals.filter((g) => !g.done).slice(0, 3);
 
   return (
     <Card className="p-[var(--card-pad)]">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">财务目标</div>
+        <div className="text-sm font-medium">{tr("dash.goals")}</div>
         <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => setHealthOpen(true)}>
-          <HeartPulse className="w-3.5 h-3.5" /> 财务体检
+          <HeartPulse className="w-3.5 h-3.5" /> {tr("dash.healthCheck")}
         </Button>
       </div>
       {top.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">
           {goals.length > 0
-            ? "所有目标都已达成。"
-            : "设一个目标（记账页 → 添加目标），体检会给出建议月存。"}
+            ? tr("dash.allGoalsDone")
+            : tr("dash.noGoals")}
         </p>
       ) : (
         <div className="mt-3 space-y-2.5">
@@ -366,8 +372,8 @@ function GoalsCard({ goals, net }: { goals: DashboardData["goals"]; net: number 
               </div>
               <div className="mt-0.5 text-[11px] text-muted-foreground">
                 {fmtMoney(g.saved, false)} / {fmtMoney(g.target, false)}
-                {g.monthly_suggest != null && ` · 建议月存 ${fmtMoney(g.monthly_suggest, false)}`}
-                {g.gap > 0 && net > 0 && ` · 按当前结余约 ${Math.max(1, Math.ceil(g.gap / net))} 个月达成`}
+                {g.monthly_suggest != null && ` · ${tr("dash.suggestMonthly")} ${fmtMoney(g.monthly_suggest, false)}`}
+                {g.gap > 0 && net > 0 && ` · ${tr("dash.monthsToGoal", { n: Math.max(1, Math.ceil(g.gap / net)) })}`}
               </div>
             </div>
           ))}
@@ -380,6 +386,7 @@ function GoalsCard({ goals, net }: { goals: DashboardData["goals"]; net: number 
 
 export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
   const { dashboard, loading, bootstrap, refreshTick } = store.useApp();
+  const { t: tr } = useI18n();
   const [trend, setTrend] = useState<TrendMonth[] | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
@@ -410,9 +417,9 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
   if (!dashboard) {
     return (
       <div className="p-8 text-center">
-        <p className="text-sm text-muted-foreground mb-3">暂时无法读取数据</p>
+        <p className="text-sm text-muted-foreground mb-3">{tr("dash.loadFail")}</p>
         <Button variant="outline" size="sm" onClick={() => store.refreshDashboard()}>
-          <RefreshCw className="w-4 h-4" /> 重试
+          <RefreshCw className="w-4 h-4" /> {tr("dash.retry")}
         </Button>
       </div>
     );
@@ -427,18 +434,18 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
     return (
       <div className="space-y-3">
         <Card className="p-6 text-center">
-          <div className="text-base font-semibold">这里还没有你的数据</div>
+          <div className="text-base font-semibold">{tr("dash.emptyTitle")}</div>
           <p className="mt-1.5 text-sm text-muted-foreground text-balance">
-            记一笔账或添加持仓，仪表盘就会显示总览、趋势和风险提示；现在也可以直接去问答里随便问点什么。
+            {tr("dash.emptyDesc")}
           </p>
           <div className="mt-4 flex justify-center">
             <Button size="sm" onClick={() => onGoLedger?.()}>
-              <NotebookPen className="w-4 h-4" /> 去记账
+              <NotebookPen className="w-4 h-4" /> {tr("dash.goLedger")}
             </Button>
           </div>
         </Card>
         <p className="px-2 text-xs text-muted-foreground">
-          想先看效果？可到「设置 → 数据与状态」载入示例数据。
+          {tr("dash.demoHint")}
         </p>
       </div>
     );
@@ -449,23 +456,23 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
       {/* 示例数据横幅：首启种入的示例数据必须明说，避免被当成自己的真实数据 */}
       {dashboard.source.seeded && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <span>当前显示的是示例数据，不是你的真实账本。</span>
+          <span>{tr("dash.demoBanner")}</span>
           <Button variant="outline" size="sm" className="h-6 px-2" onClick={() => onGoLedger?.()}>
-            记我的第一笔
+            {tr("dash.firstEntry")}
           </Button>
         </div>
       )}
       {/* 账本抬头：四个关键数字一行排开，竖线分隔（替代四张同款白卡） */}
       <div className="grid grid-cols-2 gap-y-3 rounded-[var(--radius)] border border-border bg-card px-3 py-1 sm:grid-cols-4 sm:divide-x sm:divide-border/70">
-        <StatCell label="总资产" value={fmtMoney(t.total_market_value, false, compact)} sub={`投入成本 ${fmtMoney(t.total_cost, false, compact)}`} />
+        <StatCell label={tr("dash.totalAssets")} value={fmtMoney(t.total_market_value, false, compact)} sub={`${tr("dash.costBasis")} ${fmtMoney(t.total_cost, false, compact)}`} />
         <StatCell
-          label="累计盈亏"
+          label={tr("dash.totalPnl")}
           value={fmtMoney(t.total_pnl, true, compact)}
-          sub={`${fmtPct(t.total_pnl_pct, true)}${t.total_pnl_pct !== 0 ? ` · ${t.total_pnl >= 0 ? "浮盈" : "浮亏"}` : ""}`}
+          sub={`${fmtPct(t.total_pnl_pct, true)}${t.total_pnl_pct !== 0 ? ` · ${t.total_pnl >= 0 ? tr("dash.unrealizedGain") : tr("dash.unrealizedLoss")}` : ""}`}
           tone={t.total_pnl >= 0 ? "up" : "down"}
         />
-        <StatCell label={`${cf.month} 结余`} value={fmtMoney(cf.net, true, compact)} sub={`收入 ${fmtMoney(cf.income, false, compact)} · 支出 ${fmtMoney(cf.expense, false, compact)}`} />
-        <StatCell label="储蓄率" value={`${cf.savings_rate}%`} sub={cf.savings_rate < savingsGoal ? `低于 ${savingsGoal}% 建议线` : "健康水平"} />
+        <StatCell label={`${cf.month} ${tr("dash.net")}`} value={fmtMoney(cf.net, true, compact)} sub={`${tr("dash.income")} ${fmtMoney(cf.income, false, compact)} · ${tr("dash.expense")} ${fmtMoney(cf.expense, false, compact)}`} />
+        <StatCell label={tr("dash.savingsRate")} value={`${cf.savings_rate}%`} sub={cf.savings_rate < savingsGoal ? tr("dash.belowGoal", { n: savingsGoal }) : tr("dash.healthy")} />
       </div>
 
       {/* 本月预算（设置后显示） */}
@@ -484,9 +491,9 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
       <details ref={detailsRef} className="group rounded-[var(--radius)] border border-border bg-card">
         <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium">
           <span>
-            明细分析
+            {tr("dash.details")}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              资产分布 · 支出结构 · 6 个月趋势 · 持仓 · 应急金
+              {tr("dash.detailsSub")}
             </span>
           </span>
           <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform group-open:rotate-180" />
@@ -495,17 +502,17 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
           <div className="space-y-3 border-t border-border p-3">
           <div className="grid lg:grid-cols-2 gap-3">
             <Card className="p-[var(--card-pad)]">
-              <div className="text-sm font-medium mb-2">资产分布</div>
+              <div className="text-sm font-medium mb-2">{tr("dash.assetMix")}</div>
               <AssetPie data={dashboard} />
             </Card>
             <Card className="p-[var(--card-pad)]">
-              <div className="text-sm font-medium mb-2">{cf.month} 支出结构</div>
+              <div className="text-sm font-medium mb-2">{tr("dash.spendingMix", { m: cf.month })}</div>
               <ExpenseBar data={dashboard} />
             </Card>
           </div>
 
           <Card className="p-[var(--card-pad)]">
-            <div className="text-sm font-medium mb-2">近 6 个月收支趋势</div>
+            <div className="text-sm font-medium mb-2">{tr("dash.trendTitle")}</div>
             {trend === null ? (
               <div className="h-56">
                 <Skeleton className="h-full w-full" />
@@ -514,7 +521,7 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
               <TrendChart trend={trend} />
             ) : (
               <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
-                流水数据不足以绘制趋势，去「记账」记几笔吧。
+                {tr("dash.trendEmpty")}
               </div>
             )}
           </Card>
@@ -523,13 +530,13 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
             <EmergencyCard data={dashboard} />
             <Card className="p-[var(--card-pad)]">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">负债</div>
+                <div className="text-sm font-medium">{tr("dash.debt")}</div>
                 <Badge variant={dashboard.debts.dti_pct > 40 ? "warn" : "ok"}>
-                  月供占收入 {dashboard.debts.dti_pct}%
+                  {tr("dash.dti", { n: dashboard.debts.dti_pct })}
                 </Badge>
               </div>
               {dashboard.debts.items.length === 0 ? (
-                <div className="mt-3 text-sm text-muted-foreground">无负债记录</div>
+                <div className="mt-3 text-sm text-muted-foreground">{tr("dash.noDebt")}</div>
               ) : (
                 <ul className="mt-3 space-y-2">
                   {dashboard.debts.items.map((d) => (
@@ -537,10 +544,10 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
                       <span>
                         {d.name}
                         <span className="text-xs text-muted-foreground ml-2">
-                          利率 {(d.rate * 100).toFixed(1)}%{d.due_day ? ` · ${d.due_day} 号还` : ""}
+                          {tr("dash.rate", { r: (d.rate * 100).toFixed(1) })}{d.due_day ? ` · ${tr("dash.dueOn", { d: d.due_day })} ${tr("dash.repay")}` : ""}
                         </span>
                       </span>
-                      <span className="tabular-nums">{fmtMoney(d.monthly, false, compact)}/月</span>
+                      <span className="tabular-nums">{fmtMoney(d.monthly, false, compact)}{tr("dash.perMonth")}</span>
                     </li>
                   ))}
                 </ul>
@@ -550,7 +557,7 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
 
           <Card className="p-[var(--card-pad)]">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-medium">持仓明细</div>
+              <div className="text-sm font-medium">{tr("dash.positions")}</div>
               <span className="text-xs text-muted-foreground">{dashboard.source.quotes}</span>
             </div>
             <PositionsTable rows={dashboard.positions} compact={compact} />

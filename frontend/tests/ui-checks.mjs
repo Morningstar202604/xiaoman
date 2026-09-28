@@ -33,16 +33,23 @@ page.on("request", (r) => {
   if (/echarts.*\.js|markdown.*\.js/i.test(r.url())) heavyReqs.push(r.url());
 });
 
+/** 断言统一走中文界面：默认语言已改为 en（wo.lang 缺省即 en），先把语言钉到 zh 再跑既有中文断言。 */
+async function initZh(p) {
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await p.evaluate(() => localStorage.setItem("wo.lang", "zh"));
+  await p.reload({ waitUntil: "networkidle" });
+  await p.waitForTimeout(300);
+}
+
 /** 页面加载完成后切到总览页（chat-first 下总览不再是首屏） */
 async function gotoDashboard(p) {
-  await p.goto(BASE, { waitUntil: "networkidle" });
+  await initZh(p);
   await p.locator("nav:visible button", { hasText: "总览" }).first().click();
   await p.waitForTimeout(600);
 }
 
 // —— 首屏必须是问答页（chat-first）——
-await page.goto(BASE, { waitUntil: "networkidle" });
-await page.waitForTimeout(600);
+await initZh(page);
 check("首屏为问答页（输入框可见）", (await page.locator("textarea[placeholder*='问点什么']").count()) === 1);
 const curNav = await page.locator("nav:visible [aria-current='page']").first().innerText().catch(() => "");
 check("首屏导航 aria-current 标记为问答", curNav.includes("问答"));
@@ -193,12 +200,12 @@ check("记忆可删除", (await page.getByText(memText).count()) === 0);
 // —— 应用内确认框（Radix Dialog，替代 window.confirm）：只验证弹出与取消，绝不确认 ——
 await page.locator("main nav:visible button", { hasText: "数据与状态" }).first().click();
 await page.waitForTimeout(350);
-await page.locator("main button", { hasText: "恢复示例数据" }).first().click();
+await page.locator("main button", { hasText: "恢复" }).first().click();
 await page.waitForTimeout(350);
-check("危险操作弹应用内确认框", (await page.getByText("恢复示例数据会覆盖当前").count()) > 0);
+check("危险操作弹应用内确认框", (await page.getByText("覆盖当前的持仓").count()) > 0 || (await page.getByText("overwrite current holdings").count()) > 0);
 await page.keyboard.press("Escape");
 await page.waitForTimeout(350);
-check("确认框可 ESC 取消", (await page.getByText("恢复示例数据会覆盖当前").count()) === 0);
+check("确认框可 ESC 取消", (await page.getByText("覆盖当前的持仓").count()) === 0 && (await page.getByText("overwrite current holdings").count()) === 0);
 
 // —— 问答页可从导航重新进入 ——
 await page.locator("nav:visible button", { hasText: "问答" }).first().click();
@@ -251,7 +258,7 @@ await heroPage.route("**/api/sessions", async (route) => {
 await heroPage.route("**/api/history?thread_id=hero-mock*", async (route) =>
   route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runs: [] }) }),
 );
-await heroPage.goto(BASE, { waitUntil: "networkidle" });
+await initZh(heroPage);
 await heroPage.waitForTimeout(800);
 const heroTxt = await heroPage.locator("main").innerText();
 check("空数据首屏为通用助手引导", /没有数据也能|先随便聊聊|我是小满/.test(heroTxt));
@@ -262,7 +269,7 @@ await heroPage.close();
 // —— 移动端 ——
 const mobile = await browser.newPage({ ...devices["iPhone 13"] });
 mobile.on("pageerror", (e) => errors.push(String(e)));
-await mobile.goto(BASE, { waitUntil: "networkidle" });
+await initZh(mobile);
 await mobile.waitForTimeout(800);
 check("移动端底部导航 4 项", (await mobile.locator("nav:visible button").count()) === 4);
 check("移动端首屏为问答输入框", (await mobile.locator("textarea[placeholder*='问点什么']").count()) === 1);
@@ -347,7 +354,7 @@ if (IS_SEED) {
 // 历史消息不伪造来源：runs 表未存 route/llm，历史无法证明来源
 const histPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 histPage.on("pageerror", (e) => errors.push(String(e)));
-await histPage.goto(BASE, { waitUntil: "networkidle" });
+await initZh(histPage);
 await histPage.waitForTimeout(600);
 const chatBody = await histPage.locator("main").innerText();
 check("历史回答不显示「基于你的数据计算」", !chatBody.includes("基于你的数据计算"));
@@ -375,7 +382,7 @@ await agentPage.route("**/api/sessions", async (route) => {
 await agentPage.route("**/api/history?thread_id=agent-empty*", async (route) =>
   route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ runs: [] }) }),
 );
-await agentPage.goto(BASE, { waitUntil: "networkidle" });
+await initZh(agentPage);
 await agentPage.waitForTimeout(800);
 const agentTxt = await agentPage.locator("main").innerText();
 check("空态自述为通用助手", agentTxt.includes("我是小满"));
@@ -403,6 +410,24 @@ if (HAS_DATA) {
   check("累计盈亏金额不被截断", pnlCard !== null && !pnlCard.truncated);
   check("累计盈亏百分比完整可见", pnlCard !== null && /-?\d+(\.\d+)?%/.test(pnlCard.text));
   await dashPage.close();
+}
+
+// —— 默认语言 en：界面默认英文，可一键切回中文 ——
+{
+  const langPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  langPage.on("pageerror", (e) => errors.push(String(e)));
+  await langPage.goto(BASE, { waitUntil: "domcontentloaded" });
+  await langPage.evaluate(() => localStorage.removeItem("wo.lang"));
+  await langPage.reload({ waitUntil: "networkidle" });
+  await langPage.waitForTimeout(500);
+  const bodyEn = await langPage.locator("body").innerText();
+  check("默认语言为英文（导航含 Chat）", bodyEn.includes("Chat"));
+  check("默认英文输入框 placeholder 为英文", (await langPage.locator("textarea[placeholder*='Ask anything']").count()) === 1);
+  const langBtn = await langPage.locator("button[aria-label='切换语言']").first().click().catch(() => null);
+  await langPage.waitForTimeout(500);
+  const bodyZh = await langPage.locator("body").innerText();
+  check("一键切换后界面变中文（含 问答）", langBtn !== null && bodyZh.includes("问答"));
+  await langPage.close();
 }
 
 await browser.close();

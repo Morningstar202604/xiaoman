@@ -88,7 +88,7 @@ def _looks_like_record(question: str) -> bool:
     return not any(m in q for m in QUESTION_MARKS)
 
 
-async def _try_nl_add(question: str, reason: str, emit: Emit) -> dict[str, Any] | None:
+async def _try_nl_add(question: str, reason: str, emit: Emit, lang: str = "zh") -> dict[str, Any] | None:
     """对话内一句话记账：规则解析（无需模型）→ 入账 → 回执（含撤销路径）。"""
     if not _looks_like_record(question):
         return None
@@ -104,11 +104,19 @@ async def _try_nl_add(question: str, reason: str, emit: Emit) -> dict[str, Any] 
         parsed["date"], parsed["item"], parsed["category"], parsed["amount"]
     )
     direction = "收入" if parsed["amount"] > 0 else "支出"
-    answer = (
-        f"已记一笔：{parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} 元"
-        f"（{parsed['category']} · {direction}）。\n\n"
-        "记错了可以在「记账」页删掉这一条。"
-    )
+    if lang == "zh":
+        answer = (
+            f"已记一笔：{parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} 元"
+            f"（{parsed['category']} · {direction}）。\n\n"
+            "记错了可以在「记账」页删掉这一条。"
+        )
+    else:
+        direction_en = "income" if parsed["amount"] > 0 else "expense"
+        answer = (
+            f"Recorded: {parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} CNY"
+            f" ({parsed['category']} · {direction_en}).\n\n"
+            "Made a mistake? You can delete this entry on the Ledger page."
+        )
     await emit({
         "type": "step", "id": "nl", "label": "已入账",
         "detail": f"{parsed['category']} {abs(parsed['amount']):,.2f} 元", "phase": "done",
@@ -219,7 +227,20 @@ async def _build_history(
     return out
 
 
-async def _run_general(question: str, reason: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
+GENERAL_SYSTEM_EN = (
+    "You are a general-purpose AI assistant with personal-finance tooling. "
+    "Answer ordinary questions (writing, translation, coding, small talk, etc.) directly; "
+    "when a question relates to the user's finances, honestly say you don't have that data yet "
+    "and suggest recording transactions or adding holdings in the app first. Never invent numbers."
+)
+GENERAL_FALLBACK_EN = (
+    "No model is connected right now — free-form chat needs a model endpoint in Settings → AI answers. "
+    "But bookkeeping and deterministic analysis work offline: record a transaction in Ledger with one sentence, "
+    "or ask about holdings, income & expenses, debt and risk."
+)
+
+
+async def _run_general(question: str, reason: str, emit: Emit, thread_id: str | None = None, lang: str = "zh") -> dict[str, Any]:
     """默认路径：通用 agent。
 
     - 带同会话的通用上下文（它得记得上文，否则不叫 agent）
@@ -232,15 +253,17 @@ async def _run_general(question: str, reason: str, emit: Emit, thread_id: str | 
         user_obj["history"] = history
     user = json.dumps(user_obj, ensure_ascii=False)
 
+    system = GENERAL_SYSTEM if lang == "zh" else GENERAL_SYSTEM_EN
+    fallback = GENERAL_FALLBACK if lang == "zh" else GENERAL_FALLBACK_EN
     chunks: list[str] = []
     src = "template"
-    async for delta, s in llm.stream_narrate(GENERAL_SYSTEM, user, GENERAL_FALLBACK):
+    async for delta, s in llm.stream_narrate(system, user, fallback):
         src = s
         chunks.append(delta)
         await emit({"type": "text", "delta": delta})
 
     return {
-        "answer": "".join(chunks).strip() or GENERAL_FALLBACK,
+        "answer": "".join(chunks).strip() or fallback,
         "level": "",
         "route": "general",
         "route_reason": reason,
@@ -270,14 +293,17 @@ def _metrics_from(
     return metrics
 
 
-async def run_question(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
+async def run_question(
+    question: str, emit: Emit, thread_id: str | None = None, lang: str = "zh"
+) -> dict[str, Any]:
     """执行一轮问答，返回最终元信息（由调用方负责归档与转发 final 事件）。
 
     主路径：LangGraph 多智能体图（agent_graph.run_graph）。
     图任何一步失败（节点异常/模型调用异常等）→ 降级本模块旧顺序流程（_legacy），
     保证与图同构的输出与事件，服务不中断、不冒充模型结果。
+    lang：界面语言（zh/en），回答与确定性兜底文案跟随。
     """
     await emit({"type": "start", "question": question})
     from .agent_graph import run_graph
 
-    return await run_graph(question, emit, thread_id)
+    return await run_graph(question, emit, thread_id, lang)

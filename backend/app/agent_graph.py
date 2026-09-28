@@ -51,6 +51,7 @@ async def _emit(ev: dict[str, Any]) -> None:
 class AgentState(TypedDict, total=False):
     question: str
     thread_id: str | None
+    lang: str  # 界面语言：zh | en（回答与确定性兜底文案跟随）
     route: str
     reason: str
     mode: str  # agent | deterministic
@@ -108,7 +109,7 @@ async def record(state: AgentState) -> dict[str, Any]:
     """记账 agent：把一句话记账指令确定性入账并回执（复用 service._try_nl_add 唯一实现）。"""
     parsed = state["parsed"]
     assert parsed is not None
-    result = await service._try_nl_add(state["question"], state["reason"], _emit)
+    result = await service._try_nl_add(state["question"], state["reason"], _emit, state.get("lang", "zh"))
     assert result is not None
     return {"result": result}
 
@@ -181,7 +182,9 @@ async def risk(state: AgentState) -> dict[str, Any]:
 
 async def general(state: AgentState) -> dict[str, Any]:
     """通用 agent：复用既有通用路径（带同会话记忆、不带财务数据）。"""
-    result = await service._run_general(state["question"], state["reason"], _emit, state.get("thread_id"))
+    result = await service._run_general(
+        state["question"], state["reason"], _emit, state.get("thread_id"), state.get("lang", "zh")
+    )
     return {"result": result}
 
 
@@ -209,7 +212,7 @@ async def finalize(state: AgentState) -> dict[str, Any]:
         # 模型不可用/调用失败抛 AgentUnavailable → 图内降级确定性模板成文（不中断、不冒充）。
         try:
             history = await service._build_history(tid)
-            result = await agent.run_agent(q, _emit, history)
+            result = await agent.run_agent(q, _emit, history, state.get("lang", "zh"))
             positions = await db.list_positions()
             live = await live_quotes(positions)
             m = analysis.market_view(positions, live) if "market" in routes else market
@@ -254,10 +257,11 @@ async def finalize(state: AgentState) -> dict[str, Any]:
     wants_health = any(w in q for w in analysis.HEALTH_WORDS)
     if wants_health and has_data:
         fallback = analysis.health_report_text(
-            analysis.health_check(market, ledger, flags, await db.list_goals())
+            analysis.health_check(market, ledger, flags, await db.list_goals()),
+            state.get("lang", "zh"),
         )
     elif wants_health:
-        fallback = analysis.NO_DATA_ANSWER
+        fallback = analysis.no_data_answer(state.get("lang", "zh"))
     else:
         fallback = analysis.template_answer(market, ledger, flags, has_data=has_data)
     history = await service._build_history(tid)
@@ -266,6 +270,13 @@ async def finalize(state: AgentState) -> dict[str, Any]:
         "先一句话给结论，再分点列出关键数字，最后提示风险项（如有）。"
         "不要编造任何未给出的数字，不要给出具体买卖指令。"
     )
+    if state.get("lang") == "en":
+        system = (
+            "You are the user's personal finance assistant. Based on the holdings and ledger data provided, "
+            "answer the user's question concisely in English: give a one-line conclusion first, "
+            "then list key numbers point by point, and finally note any risks (if any). "
+            "Never invent numbers not provided, and never give specific buy/sell instructions."
+        )
     if history:
         system += (
             "本次附带了同一会话的历史问答，用于理解「那上个月呢」这类省略追问："
@@ -366,14 +377,15 @@ def get_graph() -> Any:
     return _graph
 
 
-async def run_graph(question: str, emit: Emit, thread_id: str | None = None) -> dict[str, Any]:
+async def run_graph(question: str, emit: Emit, thread_id: str | None = None, lang: str = "zh") -> dict[str, Any]:
     """跑一轮图，返回最终 result（供 service.run_question 使用）。
 
     图失败（节点异常/模型调用异常等）抛异常，由调用方降级旧确定性路径。
+    lang：界面语言（zh/en），确定性兜底文案与 agent 语言指令跟随。
     """
     token = _emit_ctx.set(emit)
     try:
-        state: AgentState = {"question": question, "thread_id": thread_id}
+        state: AgentState = {"question": question, "thread_id": thread_id, "lang": lang}
         out = await get_graph().ainvoke(state)
         result = out.get("result")
         if not isinstance(result, dict) or "answer" not in result:

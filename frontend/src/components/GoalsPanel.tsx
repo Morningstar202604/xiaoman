@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { createGoal, deleteGoal, updateGoal } from "@/lib/api";
 import { fmtMoney } from "@/lib/format";
 import type { Goal } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
 
 const labelCls = "block text-xs text-muted-foreground mb-1";
 const inputCls =
@@ -22,6 +23,7 @@ function ProgressBar({ pct }: { pct: number }) {
 }
 
 export function GoalsPanel({ onDone }: { onDone: () => void }) {
+  const { t } = useI18n();
   const [f, setF] = useState({ name: "", target: "", saved: "", deadline: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,7 +31,7 @@ export function GoalsPanel({ onDone }: { onDone: () => void }) {
   const submit = async () => {
     setErr("");
     if (!f.name.trim() || !Number(f.target)) {
-      setErr("名称与目标金额必填");
+      setErr(t("goals.errRequired"));
       return;
     }
     setBusy(true);
@@ -53,25 +55,25 @@ export function GoalsPanel({ onDone }: { onDone: () => void }) {
     <div className="space-y-2.5">
       <div className="grid grid-cols-2 gap-2.5">
         <div>
-          <label className={labelCls}>目标名称</label>
-          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="买房首付 / 应急金 10 万" />
+          <label className={labelCls}>{t("goals.name")}</label>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={t("goals.namePh")} />
         </div>
         <div>
-          <label className={labelCls}>目标金额（元）</label>
+          <label className={labelCls}>{t("goals.amount")}</label>
           <input className={inputCls} type="number" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} placeholder="200000" />
         </div>
         <div>
-          <label className={labelCls}>已存金额（元，可留空）</label>
+          <label className={labelCls}>{t("goals.saved")}</label>
           <input className={inputCls} type="number" value={f.saved} onChange={(e) => setF({ ...f, saved: e.target.value })} placeholder="50000" />
         </div>
         <div>
-          <label className={labelCls}>目标月份 YYYY-MM（可留空）</label>
+          <label className={labelCls}>{t("goals.deadline")}</label>
           <input className={inputCls} value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} placeholder="2027-06" />
         </div>
       </div>
       {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
       <Button size="sm" onClick={() => void submit()} disabled={busy || !f.name || !f.target}>
-        <Plus className="w-3.5 h-3.5" /> 添加目标
+        <Plus className="w-3.5 h-3.5" /> {t("goals.add")}
       </Button>
     </div>
   );
@@ -79,6 +81,7 @@ export function GoalsPanel({ onDone }: { onDone: () => void }) {
 
 /** 目标列表：进度 + 建议月存 + 快捷追加 + 删除 */
 export function GoalsList({ goals, onDone }: { goals: Goal[]; onDone: () => void }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState("");
 
   const bump = async (name: string, amount: number) => {
@@ -97,7 +100,7 @@ export function GoalsList({ goals, onDone }: { goals: Goal[]; onDone: () => void
   if (goals.length === 0) {
     return (
       <div className="py-4 text-center text-sm text-muted-foreground">
-        还没有财务目标。设一个「买房首付」「应急金 10 万」之类的目标，问答和体检都会带上它。
+        {t("goals.empty")}
       </div>
     );
   }
@@ -110,7 +113,7 @@ export function GoalsList({ goals, onDone }: { goals: Goal[]; onDone: () => void
             <span className="flex items-center gap-1.5 text-sm font-medium min-w-0">
               <Target className="w-3.5 h-3.5 text-primary shrink-0" />
               <span className="truncate">{g.name}</span>
-              {g.done && <Badge variant="ok">已达成</Badge>}
+              {g.done && <Badge variant="ok">{t("goals.done")}</Badge>}
             </span>
             <span className="text-xs text-muted-foreground tabular-nums shrink-0">
               {fmtMoney(g.saved, false)} / {fmtMoney(g.target, false)}
@@ -125,11 +128,11 @@ export function GoalsList({ goals, onDone }: { goals: Goal[]; onDone: () => void
           <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               {g.months_left != null && g.monthly_suggest != null
-                ? `距 ${g.deadline} 还有 ${g.months_left} 个月，建议月存 ${fmtMoney(g.monthly_suggest, false)}`
+                ? `${t("goals.daysTo", { d: g.deadline, n: g.months_left })} · ${t("goals.suggest")} ${fmtMoney(g.monthly_suggest, false)}`
                 : g.deadline
-                  ? `截止 ${g.deadline}`
-                  : "未设截止时间"}
-              {g.gap > 0 && ` · 还差 ${fmtMoney(g.gap, false)}`}
+                  ? t("goals.by", { d: g.deadline })
+                  : t("goals.noDeadline")}
+              {g.gap > 0 && ` · ${t("goals.gap")} ${fmtMoney(g.gap, false)}`}
             </span>
             <span className="flex items-center gap-1 shrink-0">
               <Button size="sm" variant="outline" className="h-6 px-2" disabled={busy === g.name} onClick={() => void bump(g.name, 1000)}>
@@ -142,7 +145,7 @@ export function GoalsList({ goals, onDone }: { goals: Goal[]; onDone: () => void
                 size="sm"
                 variant="ghost"
                 className="h-6 px-1.5 text-muted-foreground hover:text-red-600"
-                aria-label={`删除目标 ${g.name}`}
+                aria-label={t("goals.delete", { name: g.name })}
                 onClick={() => void deleteGoal(g.name).then(onDone)}
               >
                 <Trash2 className="w-3.5 h-3.5" />

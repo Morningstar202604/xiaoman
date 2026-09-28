@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 /** 应用内确认框，替代原生 window.confirm（样式统一、可键盘操作）。 */
 export function ConfirmDialog({
@@ -7,8 +8,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmText = "确认",
-  cancelText = "取消",
+  confirmText,
+  cancelText,
   danger = false,
   onConfirm,
 }: {
@@ -21,6 +22,9 @@ export function ConfirmDialog({
   danger?: boolean;
   onConfirm: () => void | Promise<void>;
 }) {
+  const { t } = useI18n();
+  const cf = confirmText || t("confirm.confirm");
+  const cc = cancelText || t("confirm.cancel");
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -38,7 +42,7 @@ export function ConfirmDialog({
           <div className="mt-4 flex justify-end gap-2">
             <Dialog.Close asChild>
               <Button variant="outline" size="sm">
-                {cancelText}
+                {cc}
               </Button>
             </Dialog.Close>
             <Button
@@ -49,7 +53,7 @@ export function ConfirmDialog({
                 void onConfirm();
               }}
             >
-              {confirmText}
+              {cf}
             </Button>
           </div>
         </Dialog.Content>

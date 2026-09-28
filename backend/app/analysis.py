@@ -257,6 +257,17 @@ NO_DATA_ANSWER = (
     "- 或添加持仓后，我帮你算盈亏、集中度和风险。\n"
     "录入之后，这些问题就能直接回答：我的钱花到哪了、持仓有什么风险、应急金够不够。"
 )
+NO_DATA_ANSWER_EN = (
+    "You haven't recorded any data yet, so I can't give you numbers. What you can do now:\n"
+    "- Record a transaction in Ledger with one sentence (e.g. \"Taxi 32 yuan yesterday\");\n"
+    "- Or add holdings, then I can calculate P&L, concentration and risk.\n"
+    "Once you do, I can answer: where my money went, risks in my holdings, and whether the emergency fund is enough."
+)
+
+
+def no_data_answer(lang: str = "zh") -> str:
+    """空库引导文案（跟随界面语言）。"""
+    return NO_DATA_ANSWER if lang == "zh" else NO_DATA_ANSWER_EN
 
 
 def template_answer(
@@ -577,16 +588,43 @@ def health_check(
 HEALTH_WORDS = ("体检", "健康检查", "哪里需要改进", "财务状况怎么样", "综合评分")
 
 
-def health_report_text(report: dict[str, Any]) -> str:
-    """把 health_check 报告转成给用户看的文本（确定性体检输出，无需模型）。"""
-    lines = [f"财务体检综合评分 {report['score']} 分（{report['summary']}）。"]
+HEALTH_DIM_TITLES_EN = {
+    "portfolio": "Asset mix",
+    "cashflow": "Cash flow",
+    "debt": "Debt health",
+    "emergency": "Emergency fund",
+    "goals": "Goal progress",
+}
+HEALTH_STATUS_EN = {"good": "Healthy", "warn": "Attention", "bad": "Risk"}
+
+
+def health_report_text(report: dict[str, Any], lang: str = "zh") -> str:
+    """把 health_check 报告转成给用户看的文本（确定性体检输出，无需模型）。
+
+    lang=en 时：评分/状态/维度标题本地化；维度结论与建议保持数据层中文（后续迭代全量英文化）。
+    """
+    if lang == "zh":
+        lines = [f"财务体检综合评分 {report['score']} 分（{report['summary']}）。"]
+        if not report["dimensions"]:
+            lines.append("当前数据太少，暂时无法逐项评估——记几笔账、加几条持仓后体检会更完整。")
+            return "\n".join(lines)
+        for d in report["dimensions"]:
+            status = {"good": "健康", "warn": "需关注", "bad": "风险"}.get(d["status"], d["status"])
+            line = f"- {d['title']}（{status}）：{d['detail']}"
+            if d.get("suggestion"):
+                line += f"\n  建议：{d['suggestion']}"
+            lines.append(line)
+        return "\n".join(lines)
+    summary_en = "overall healthy" if report["summary"] == "整体健康" else "some areas need attention, handle them one by one"
+    lines = [f"Financial health score: {report['score']} ({summary_en})."]
     if not report["dimensions"]:
-        lines.append("当前数据太少，暂时无法逐项评估——记几笔账、加几条持仓后体检会更完整。")
+        lines.append("Not enough data for itemized assessment — record a few transactions and holdings, then check again.")
         return "\n".join(lines)
     for d in report["dimensions"]:
-        status = {"good": "健康", "warn": "需关注", "bad": "风险"}.get(d["status"], d["status"])
-        line = f"- {d['title']}（{status}）：{d['detail']}"
+        title = HEALTH_DIM_TITLES_EN.get(d["key"], d["title"])
+        status = HEALTH_STATUS_EN.get(d["status"], d["status"])
+        line = f"- {title} ({status}): {d['detail']}"
         if d.get("suggestion"):
-            line += f"\n  建议：{d['suggestion']}"
+            line += f"\n  Suggestion: {d['suggestion']}"
         lines.append(line)
     return "\n".join(lines)

@@ -4,14 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/lib/toast";
+import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { store as appStore } from "@/lib/store";
 import { fmtMoney } from "@/lib/format";
 import { PositionsTable } from "@/components/PositionsTable";
 import { GoalsPanel, GoalsList } from "@/components/GoalsPanel";
 
-const KIND_OPTIONS = ["股票", "ETF", "基金", "现金", "其他"];
-const CATEGORY_OPTIONS = ["收入", "餐饮", "居住", "交通", "购物", "订阅", "投资", "还款", "其他"];
+const KIND_OPTIONS = ["股票", "ETF", "基金", "现金", "其他"] as const;
+const CATEGORY_OPTIONS = ["收入", "餐饮", "居住", "交通", "购物", "订阅", "投资", "还款", "其他"] as const;
+// 数据值（提交给后端）保持中文，界面显示按语言翻译
+const KIND_LABEL_KEYS: Record<string, string> = {
+  股票: "entry.kindStock", ETF: "entry.kindEtf", 基金: "entry.kindFund", 现金: "entry.kindCash", 其他: "entry.kindOther",
+};
+const CAT_LABEL_KEYS: Record<string, string> = {
+  收入: "entry.catIncome", 餐饮: "entry.catFood", 居住: "entry.catHousing", 交通: "entry.catTransport",
+  购物: "entry.catShopping", 订阅: "entry.catSubs", 投资: "entry.catInvest", 还款: "entry.catRepay", 其他: "entry.catOther",
+};
 
 function today(): string {
   // 用本地时间拼 YYYY-MM-DD（toISOString 是 UTC，东八区凌晨会取到前一天）
@@ -45,6 +54,7 @@ const inputCls =
 const labelCls = "block text-xs text-muted-foreground mb-1";
 
 function PositionForm({ onDone }: { onDone: () => void }) {
+  const { t: tt } = useI18n();
   const [f, setF] = useState({
     symbol: "",
     name: "",
@@ -81,49 +91,50 @@ function PositionForm({ onDone }: { onDone: () => void }) {
     <div className="space-y-2.5">
       <div className="grid grid-cols-2 gap-2.5">
         <div>
-          <label className={labelCls}>代码（如 600519）</label>
+          <label className={labelCls}>{tt("entry.posCode")}</label>
           <input className={inputCls} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} placeholder="600519" />
         </div>
         <div>
-          <label className={labelCls}>名称</label>
-          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="贵州茅台" />
+          <label className={labelCls}>{tt("entry.name")}</label>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={tt("entry.posNamePh")} />
         </div>
         <div>
-          <label className={labelCls}>类型</label>
+          <label className={labelCls}>{tt("entry.kind")}</label>
           <select className={inputCls} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
             {KIND_OPTIONS.map((k) => (
-              <option key={k}>{k}</option>
+              <option key={k}>{tt(KIND_LABEL_KEYS[k] ?? "entry.kindOther")}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className={labelCls}>行业</label>
-          <input className={inputCls} value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} placeholder="白酒" />
+          <label className={labelCls}>{tt("entry.industry")}</label>
+          <input className={inputCls} value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} placeholder={tt("entry.industryPh")} />
         </div>
         <div>
-          <label className={labelCls}>股数/份额</label>
+          <label className={labelCls}>{tt("entry.shares")}</label>
           <input className={inputCls} type="number" value={f.shares} onChange={(e) => setF({ ...f, shares: e.target.value })} placeholder="100" />
         </div>
         <div className="grid grid-cols-2 gap-2.5">
           <div>
-            <label className={labelCls}>成本价</label>
+            <label className={labelCls}>{tt("entry.costPrice")}</label>
             <input className={inputCls} type="number" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} placeholder="1680" />
           </div>
           <div>
-            <label className={labelCls}>现价</label>
+            <label className={labelCls}>{tt("entry.currentPrice")}</label>
             <input className={inputCls} type="number" value={f.last} onChange={(e) => setF({ ...f, last: e.target.value })} placeholder="1521" />
           </div>
         </div>
       </div>
       {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
       <Button size="sm" onClick={() => void submit()} disabled={!f.symbol || !f.shares || !f.cost || !f.last}>
-        <Plus className="w-3.5 h-3.5" /> 添加持仓
+        <Plus className="w-3.5 h-3.5" /> {tt("entry.addPosition")}
       </Button>
     </div>
   );
 }
 
 function TransactionForm({ onDone, defaultCategory = "餐饮" }: { onDone: () => void; defaultCategory?: string }) {
+  const { t: tt } = useI18n();
   const [f, setF] = useState({ date: today(), item: "", category: defaultCategory, amount: "" });
   const [err, setErr] = useState("");
 
@@ -151,42 +162,43 @@ function TransactionForm({ onDone, defaultCategory = "餐饮" }: { onDone: () =>
     <div className="space-y-2.5">
       <div className="grid grid-cols-2 gap-2.5">
         <div>
-          <label className={labelCls}>日期</label>
+          <label className={labelCls}>{tt("entry.date")}</label>
           <input className={inputCls} type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
         </div>
         <div>
-          <label className={labelCls}>分类</label>
+          <label className={labelCls}>{tt("entry.category")}</label>
           <select className={inputCls} value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
             {CATEGORY_OPTIONS.map((c) => (
-              <option key={c}>{c}</option>
+              <option key={c}>{tt(CAT_LABEL_KEYS[c] ?? "entry.catOther")}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className={labelCls}>名称</label>
-          <input className={inputCls} value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} placeholder="午餐 / 工资" />
+          <label className={labelCls}>{tt("entry.name")}</label>
+          <input className={inputCls} value={f.item} onChange={(e) => setF({ ...f, item: e.target.value })} placeholder={tt("entry.itemPh")} />
         </div>
         <div>
-          <label className={labelCls}>金额</label>
+          <label className={labelCls}>{tt("entry.amount")}</label>
           <input className={inputCls} type="number" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="66" />
         </div>
       </div>
       <div className="text-[11px] text-muted-foreground">
-        选择「收入」记为正数，其余分类记支出。
+        {tt("entry.incomeHint")}
       </div>
       {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
       <Button size="sm" onClick={() => void submit()} disabled={!f.item || !f.amount}>
-        <Plus className="w-3.5 h-3.5" /> 记一笔
+        <Plus className="w-3.5 h-3.5" /> {tt("entry.addOne")}
       </Button>
     </div>
   );
 }
 
-/** 一句话记账：规则解析秒回，复杂句自动升级 AI；成功直接入账。 */function NlForm({ onDone }: { onDone: () => void }) {
+/** {tt("entry.nlLedger")}：规则解析秒回，复杂句自动升级 AI；成功直接入账。 */function NlForm({ onDone }: { onDone: () => void }) {
   const { toast } = useToast();
+  const { t: tt } = useI18n();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const samples = ["昨天打车 32 元", "工资 8000 已到账", "买了件衣服 299"];
+  const samples = [tt("entry.sample1"), tt("entry.sample2"), tt("entry.sample3")];
 
   const submit = async (s?: string) => {
     const q = (s ?? text).trim();
@@ -199,7 +211,7 @@ function TransactionForm({ onDone, defaultCategory = "餐饮" }: { onDone: () =>
       });
       const t = r.transaction;
       toast(
-        `已记：${t.category} ${fmtMoney(t.amount, true)}（${t.item} · ${t.date}）${r.source === "ai" ? " · AI 识别" : ""}`,
+        tt("entry.recorded", { cat: t.category, amt: fmtMoney(t.amount, true), item: t.item, date: t.date }) + (r.source === "ai" ? tt("entry.aiSuffix") : ""),
         "ok",
       );
       setText("");
@@ -215,7 +227,7 @@ function TransactionForm({ onDone, defaultCategory = "餐饮" }: { onDone: () =>
     <div className="mb-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
       <div className="flex items-center gap-1.5 text-xs font-medium mb-1.5">
         <Sparkles className="w-3.5 h-3.5 text-primary" />
-        一句话记账
+        {tt("entry.nlLedger")}
       </div>
       <div className="flex gap-2">
         <input
@@ -223,10 +235,10 @@ function TransactionForm({ onDone, defaultCategory = "餐饮" }: { onDone: () =>
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void submit()}
-          placeholder="例如：昨天打车 32 元"
+          placeholder={tt("entry.nlPh")}
         />
         <Button size="sm" onClick={() => void submit()} disabled={busy || !text.trim()}>
-          {busy ? "识别中…" : "记一笔"}
+          {busy ? tt("entry.parsing") : tt("entry.addOne")}
         </Button>
       </div>
       <div className="mt-1.5 flex gap-1.5 flex-wrap">
@@ -256,6 +268,7 @@ interface ImportPreview {
 /** 账单 CSV 导入：粘贴 → 解析预览（自动识别列/分类）→ 确认批量入账。 */
 function ImportPanel({ onDone }: { onDone: () => void }) {
   const { toast } = useToast();
+  const { t: tt } = useI18n();
   const [content, setContent] = useState("");
   const [parsed, setParsed] = useState<ImportPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -286,7 +299,7 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
         method: "POST",
         body: JSON.stringify({ rows: parsed.rows }),
       });
-      toast(r.failed.length ? `导入 ${r.imported} 条，跳过 ${r.failed.length} 条` : `已导入 ${r.imported} 笔账单`, r.failed.length ? "error" : "ok");
+      toast(r.failed.length ? tt("entry.importPartial", { n: r.imported, m: r.failed.length }) : tt("entry.importOk", { n: r.imported }), r.failed.length ? "error" : "ok");
       setContent("");
       setParsed(null);
       onDone();
@@ -306,27 +319,27 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
         return file.arrayBuffer().then((buf) => new TextDecoder("gbk").decode(buf));
       })
       .then((text) => setContent(text))
-      .catch(() => toast("文件读取失败", "error"));
+      .catch(() => toast(tt("entry.fileReadFail"), "error"));
   };
 
   return (
     <div className="mb-3 rounded-xl border border-border/70 p-3">
-      <div className="text-xs font-medium mb-1.5">导入账单（CSV）</div>
+      <div className="text-xs font-medium mb-1.5">{tt("entry.importCsv")}</div>
       <div className="text-[11px] text-muted-foreground mb-2">
-        支持微信 / 支付宝 / 银行导出的账单 CSV，自动识别日期、金额、收支与分类
+        {tt("entry.importDesc")}
       </div>
       <textarea
         className={`${inputCls} min-h-16`}
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder={"粘贴 CSV 内容，或点击右侧上传文件…\n示例：交易时间,交易类型,交易对方,金额"}
+        placeholder={tt("entry.csvPh")}
       />
       <div className="mt-2 flex gap-2">
         <Button size="sm" variant="outline" onClick={() => void parse()} disabled={busy || !content.trim()}>
-          {busy ? "解析中…" : "解析预览"}
+          {busy ? tt("entry.parsing") : tt("entry.preview")}
         </Button>
         <label className="inline-flex items-center text-xs text-muted-foreground cursor-pointer hover:text-primary">
-          上传文件
+          {tt("entry.upload")}
           <input
             type="file"
             accept=".csv,.txt,text/csv,text/plain"
@@ -343,17 +356,17 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
       {parsed && (
         <div className="mt-3 border-t border-border/60 pt-3">
           <div className="text-xs mb-2">
-            识别到 <b className="tabular-nums">{parsed.total}</b> 条可导入
-            {parsed.skipped > 0 && <span className="text-muted-foreground"> · 跳过 {parsed.skipped} 条（缺金额/日期）</span>}
+            {tt("entry.recognized", { n: parsed.total })}
+            {parsed.skipped > 0 && <span className="text-muted-foreground">{tt("entry.skipped", { n: parsed.skipped })}</span>}
           </div>
           <div className="overflow-x-auto scroll-thin">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-muted-foreground text-left">
-                  <th className="py-1 pr-3">日期</th>
-                  <th className="py-1 pr-3">名称</th>
-                  <th className="py-1 pr-3">分类</th>
-                  <th className="py-1 text-right">金额</th>
+                  <th className="py-1 pr-3">{tt("entry.date")}</th>
+                  <th className="py-1 pr-3">{tt("entry.name")}</th>
+                  <th className="py-1 pr-3">{tt("entry.category")}</th>
+                  <th className="py-1 text-right">{tt("entry.amount")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -370,10 +383,10 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
           </div>
           <div className="mt-2 flex gap-2">
             <Button size="sm" onClick={() => void commit()} disabled={importing || parsed.total === 0}>
-              {importing ? "导入中…" : `确认导入 ${parsed.total} 条`}
+              {importing ? tt("entry.importing") : tt("entry.confirmImport", { n: parsed.total })}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setParsed(null)}>
-              取消
+              {tt("entry.cancel")}
             </Button>
           </div>
         </div>
@@ -383,6 +396,7 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
 }
 
 function DebtForm({ onDone }: { onDone: () => void }) {
+  const { t: tt } = useI18n();
   const [f, setF] = useState({ name: "", monthly: "", balance: "", rate: "", dueDay: "" });
   const [err, setErr] = useState("");
 
@@ -410,35 +424,36 @@ function DebtForm({ onDone }: { onDone: () => void }) {
     <div className="space-y-2.5">
       <div className="grid grid-cols-2 gap-2.5">
         <div>
-          <label className={labelCls}>名称</label>
-          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="房贷 / 信用卡分期" />
+          <label className={labelCls}>{tt("entry.name")}</label>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={tt("entry.debtNamePh")} />
         </div>
         <div>
-          <label className={labelCls}>月供（元）</label>
+          <label className={labelCls}>{tt("entry.monthlyPay")}</label>
           <input className={inputCls} type="number" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} placeholder="6800" />
         </div>
         <div>
-          <label className={labelCls}>余额（元）</label>
+          <label className={labelCls}>{tt("entry.balance")}</label>
           <input className={inputCls} type="number" value={f.balance} onChange={(e) => setF({ ...f, balance: e.target.value })} placeholder="1280000" />
         </div>
         <div>
-          <label className={labelCls}>年利率（%）</label>
+          <label className={labelCls}>{tt("entry.rate")}</label>
           <input className={inputCls} type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} placeholder="3.45" />
         </div>
         <div>
-          <label className={labelCls}>每月还款日（几号，可留空）</label>
+          <label className={labelCls}>{tt("entry.dueDay")}</label>
           <input className={inputCls} type="number" min="1" max="31" value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: e.target.value })} placeholder="15" />
         </div>
       </div>
       {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
       <Button size="sm" onClick={() => void submit()} disabled={!f.name}>
-        <Plus className="w-3.5 h-3.5" /> 添加负债
+        <Plus className="w-3.5 h-3.5" /> {tt("entry.addDebt")}
       </Button>
     </div>
   );
 }
 
 function SubscriptionForm({ onDone }: { onDone: () => void }) {
+  const { t: tt } = useI18n();
   const [f, setF] = useState({ name: "", monthly: "", dueDay: "", note: "" });
   const [err, setErr] = useState("");
 
@@ -465,25 +480,25 @@ function SubscriptionForm({ onDone }: { onDone: () => void }) {
     <div className="space-y-2.5">
       <div className="grid grid-cols-2 gap-2.5">
         <div>
-          <label className={labelCls}>名称</label>
-          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Netflix / 云盘会员" />
+          <label className={labelCls}>{tt("entry.name")}</label>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={tt("entry.subNamePh")} />
         </div>
         <div>
-          <label className={labelCls}>月支出（元）</label>
+          <label className={labelCls}>{tt("entry.monthlyCost")}</label>
           <input className={inputCls} type="number" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} placeholder="68" />
         </div>
         <div>
-          <label className={labelCls}>每月扣款日（几号，可留空）</label>
+          <label className={labelCls}>{tt("entry.dueDay")}</label>
           <input className={inputCls} type="number" min="1" max="31" value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: e.target.value })} placeholder="5" />
         </div>
         <div>
-          <label className={labelCls}>备注（可留空）</label>
-          <input className={inputCls} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="家庭共用" />
+          <label className={labelCls}>{tt("entry.note")}</label>
+          <input className={inputCls} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder={tt("entry.notePh")} />
         </div>
       </div>
       {err && <div className="text-xs text-red-600 dark:text-red-400">{err}</div>}
       <Button size="sm" onClick={() => void submit()} disabled={!f.name || !f.monthly}>
-        <Plus className="w-3.5 h-3.5" /> 添加订阅
+        <Plus className="w-3.5 h-3.5" /> {tt("entry.addSubscription")}
       </Button>
     </div>
   );
@@ -493,27 +508,28 @@ type ListTab = "transactions" | "positions" | "debts" | "subscriptions" | "goals
 type Panel = "expense" | "income" | "import" | "position" | "debt" | "subscription" | "goal" | null;
 
 export function EntryView() {
+  const { t: tt } = useI18n();
   const { dashboard } = appStore.useApp();
   const [tab, setTab] = useState<ListTab>("transactions");
   const [panel, setPanel] = useState<Panel>(null);
   const [txQuery, setTxQuery] = useState("");
 
   const actions: { id: Panel; label: string; icon: React.ReactNode }[] = [
-    { id: "expense", label: "记支出", icon: <Plus className="w-3.5 h-3.5" /> },
-    { id: "income", label: "记收入", icon: <Wallet className="w-3.5 h-3.5" /> },
-    { id: "import", label: "导入账单", icon: <FileUp className="w-3.5 h-3.5" /> },
-    { id: "position", label: "管理持仓", icon: <Sparkles className="w-3.5 h-3.5" /> },
-    { id: "debt", label: "添加负债", icon: <Landmark className="w-3.5 h-3.5" /> },
-    { id: "subscription", label: "添加订阅", icon: <Repeat className="w-3.5 h-3.5" /> },
-    { id: "goal", label: "添加目标", icon: <Target className="w-3.5 h-3.5" /> },
+    { id: "expense", label: tt("entry.actionExpense"), icon: <Plus className="w-3.5 h-3.5" /> },
+    { id: "income", label: tt("entry.actionIncome"), icon: <Wallet className="w-3.5 h-3.5" /> },
+    { id: "import", label: tt("entry.actionImport"), icon: <FileUp className="w-3.5 h-3.5" /> },
+    { id: "position", label: tt("entry.actionPositions"), icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { id: "debt", label: tt("entry.actionDebt"), icon: <Landmark className="w-3.5 h-3.5" /> },
+    { id: "subscription", label: tt("entry.actionSubscription"), icon: <Repeat className="w-3.5 h-3.5" /> },
+    { id: "goal", label: tt("entry.actionGoal"), icon: <Target className="w-3.5 h-3.5" /> },
   ];
 
   const tabs: { id: ListTab; label: string; count?: number }[] = [
-    { id: "transactions", label: "流水", count: dashboard?.transactions.length },
-    { id: "positions", label: "持仓", count: dashboard?.positions.length },
-    { id: "debts", label: "负债", count: dashboard?.debts.items.length },
-    { id: "subscriptions", label: "订阅", count: dashboard?.subscriptions.items.length },
-    { id: "goals", label: "目标", count: dashboard?.goals.length },
+    { id: "transactions", label: tt("entry.tabTransactions"), count: dashboard?.transactions.length },
+    { id: "positions", label: tt("entry.tabPositions"), count: dashboard?.positions.length },
+    { id: "debts", label: tt("entry.tabDebts"), count: dashboard?.debts.items.length },
+    { id: "subscriptions", label: tt("entry.tabSubscriptions"), count: dashboard?.subscriptions.items.length },
+    { id: "goals", label: tt("entry.tabGoals"), count: dashboard?.goals.length },
   ];
 
   // 流水本地搜索：名称/分类/日期 任一命中
@@ -531,7 +547,7 @@ export function EntryView() {
 
   return (
     <div className="space-y-3">
-      {/* 主入口：一句话记账，永远在最上面 */}
+      {/* 主入口：{tt("entry.nlLedger")}，永远在最上面 */}
       <NlForm onDone={() => appStore.bump()} />
 
       {/* 快捷动作：点开哪个显示哪个，不全部铺开 */}
@@ -549,40 +565,40 @@ export function EntryView() {
       </div>
 
       {panel === "expense" && (
-        <Section title="记一笔支出">
+        <Section title={tt("entry.sectionExpense")}>
           <TransactionForm defaultCategory="餐饮" onDone={() => appStore.bump()} />
         </Section>
       )}
       {panel === "income" && (
-        <Section title="记一笔收入">
+        <Section title={tt("entry.sectionIncome")}>
           <TransactionForm defaultCategory="收入" onDone={() => appStore.bump()} />
         </Section>
       )}
       {panel === "import" && <ImportPanel onDone={() => appStore.bump()} />}
       {panel === "position" && (
-        <Section title="添加持仓" badge={<Badge variant="muted">现价用于估算市值，也可等行情自动更新</Badge>}>
+        <Section title={tt("entry.sectionPosition")} badge={<Badge variant="muted">{tt("entry.priceHint")}</Badge>}>
           <PositionForm onDone={() => appStore.bump()} />
         </Section>
       )}
       {panel === "debt" && (
-        <Section title="添加负债">
+        <Section title={tt("entry.sectionDebt")}>
           <DebtForm onDone={() => appStore.bump()} />
         </Section>
       )}
       {panel === "subscription" && (
-        <Section title="添加订阅">
+        <Section title={tt("entry.sectionSubscription")}>
           <SubscriptionForm onDone={() => appStore.bump()} />
         </Section>
       )}
       {panel === "goal" && (
-        <Section title="添加目标">
+        <Section title={tt("entry.sectionGoal")}>
           <GoalsPanel onDone={() => appStore.bump()} />
         </Section>
       )}
 
       {/* 列表管理：流水 / 持仓 / 负债 / 订阅 */}
       <Section
-        title="我的账本"
+        title={tt("entry.myLedger")}
         badge={
           <div className="flex gap-1.5">
             {tabs.map((t) => (
@@ -613,7 +629,7 @@ export function EntryView() {
                   className="w-full rounded-lg border border-input bg-background pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={txQuery}
                   onChange={(e) => setTxQuery(e.target.value)}
-                  placeholder="搜索名称 / 分类 / 日期"
+                  placeholder={tt("entry.searchPh")}
                 />
               </div>
               <div className="max-h-80 overflow-y-auto scroll-thin">
@@ -632,7 +648,7 @@ export function EntryView() {
                         onClick={() => {
                           void api(`/api/transactions/${t.id}`, { method: "DELETE" }).then(() => appStore.bump());
                         }}
-                        aria-label={`删除 ${t.item}`}
+                        aria-label={tt("entry.deleteItem", { name: t.item })}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -640,18 +656,18 @@ export function EntryView() {
                   </div>
                 ))}
                 {txRows.length === 0 && (
-                  <div className="py-4 text-center text-xs text-muted-foreground">没有匹配「{txQuery}」的流水</div>
+                  <div className="py-4 text-center text-xs text-muted-foreground">{tt("entry.noMatchTx", { q: txQuery })}</div>
                 )}
                 {txQueryL === "" && dashboard.transactions.length > 200 && (
                   <div className="py-2 text-center text-xs text-muted-foreground">
-                    仅显示最近 200 条，共 {dashboard.transactions.length} 条
+                    {tt("entry.txCount", { n: dashboard.transactions.length })}
                   </div>
                 )}
               </div>
             </div>
           ) : (
             <div className="py-6 text-center text-sm text-muted-foreground">
-              还没有流水，用上方「一句话记账」记第一笔吧
+              {tt("entry.noTx")}
             </div>
           )
         )}
@@ -667,13 +683,13 @@ export function EntryView() {
                       {p.name} <span className="text-muted-foreground text-xs">{p.symbol}</span>
                     </span>
                     <span className="flex items-center gap-2">
-                      <span className="tabular-nums text-muted-foreground">{p.shares} 份</span>
+                      <span className="tabular-nums text-muted-foreground">{tt("entry.sharesUnit", { n: p.shares })}</span>
                       <button
                         className="text-muted-foreground hover:text-red-600"
                         onClick={() => {
                           void api(`/api/positions/${p.symbol}`, { method: "DELETE" }).then(() => appStore.bump());
                         }}
-                        aria-label={`删除 ${p.name}`}
+                        aria-label={tt("entry.deleteItem", { name: p.name })}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -684,7 +700,7 @@ export function EntryView() {
             </div>
           ) : (
             <div className="py-6 text-center text-sm text-muted-foreground">
-              暂无持仓，点上方「管理持仓」添加
+              {tt("entry.noPositions")}
             </div>
           )
         )}
@@ -698,13 +714,13 @@ export function EntryView() {
                     {d.name} <span className="text-muted-foreground text-xs">{(d.rate * 100).toFixed(1)}%</span>
                   </span>
                   <span className="flex items-center gap-2">
-                    <span className="tabular-nums text-muted-foreground">{fmtMoney(d.monthly)}/月</span>
+                    <span className="tabular-nums text-muted-foreground">{tt("entry.perMonth", { v: fmtMoney(d.monthly) })}</span>
                     <button
                       className="text-muted-foreground hover:text-red-600"
                       onClick={() => {
                         void api(`/api/debts/${encodeURIComponent(d.name)}`, { method: "DELETE" }).then(() => appStore.bump());
                       }}
-                      aria-label={`删除 ${d.name}`}
+                      aria-label={tt("entry.deleteItem", { name: d.name })}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -713,7 +729,7 @@ export function EntryView() {
               ))}
             </div>
           ) : (
-            <div className="py-6 text-center text-sm text-muted-foreground">无负债记录</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">{tt("entry.noDebts")}</div>
           )
         )}
 
@@ -726,16 +742,16 @@ export function EntryView() {
                     <span>
                       <Repeat className="w-3.5 h-3.5 inline mr-1.5 text-muted-foreground" />
                       {s.name}
-                      {s.due_day && <span className="text-xs text-muted-foreground ml-1.5">{s.due_day} 号扣</span>}
+                      {s.due_day && <span className="text-xs text-muted-foreground ml-1.5">{tt("entry.dueDaySuffix", { d: s.due_day })}</span>}
                     </span>
                     <span className="flex items-center gap-2">
-                      <span className="tabular-nums text-muted-foreground">{fmtMoney(s.monthly)}/月</span>
+                      <span className="tabular-nums text-muted-foreground">{tt("entry.perMonth", { v: fmtMoney(s.monthly) })}</span>
                       <button
                         className="text-muted-foreground hover:text-red-600"
                         onClick={() => {
                           void api(`/api/subscriptions/${encodeURIComponent(s.name)}`, { method: "DELETE" }).then(() => appStore.bump());
                         }}
-                        aria-label={`删除订阅 ${s.name}`}
+                        aria-label={tt("entry.deleteSub", { name: s.name })}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -744,10 +760,10 @@ export function EntryView() {
                 ))}
               </ul>
             ) : (
-              <div className="py-6 text-center text-sm text-muted-foreground">无订阅记录</div>
+              <div className="py-6 text-center text-sm text-muted-foreground">{tt("entry.noSubs")}</div>
             )}
             <div className="mt-3 text-[11px] text-muted-foreground">
-              订阅月支出合计 {fmtMoney(dashboard?.subscriptions.monthly_total ?? 0)}，会纳入账本结余与近期待扣提醒。
+              {tt("entry.subTotal", { v: fmtMoney(dashboard?.subscriptions.monthly_total ?? 0) })}
             </div>
           </div>
         )}

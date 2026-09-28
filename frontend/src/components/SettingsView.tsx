@@ -13,6 +13,8 @@ import { useTheme } from "@/lib/theme";
 import { api, addMemory, clearMemory, deleteMemory, getToken, listMemory, setToken } from "@/lib/api";
 import { store } from "@/lib/store";
 import { useToast } from "@/lib/toast";
+import { BRAND } from "@/lib/brand";
+import { useI18n } from "@/lib/i18n";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { MemoryItem, RunRecord } from "@/lib/types";
@@ -23,15 +25,15 @@ const labelCls = "block text-xs text-muted-foreground mb-1";
 
 type SectionId = "prefs" | "rules" | "budget" | "ai" | "report" | "data" | "memory" | "token";
 
-const SECTIONS: { id: SectionId; label: string; icon: typeof Wallet }[] = [
-  { id: "prefs", label: "偏好", icon: SlidersHorizontal },
-  { id: "rules", label: "账本规则", icon: Wallet },
-  { id: "budget", label: "预算", icon: PiggyBank },
-  { id: "ai", label: "AI 回答", icon: Brain },
-  { id: "report", label: "每日晨报", icon: Newspaper },
-  { id: "memory", label: "长期记忆", icon: BrainCog },
-  { id: "data", label: "数据与状态", icon: ShieldCheck },
-  { id: "token", label: "访问口令", icon: KeyRound },
+const SECTIONS: { id: SectionId; labelKey: string; icon: typeof Wallet }[] = [
+  { id: "prefs", labelKey: "settings.navPrefs", icon: SlidersHorizontal },
+  { id: "rules", labelKey: "settings.navRules", icon: Wallet },
+  { id: "budget", labelKey: "settings.navBudget", icon: PiggyBank },
+  { id: "ai", labelKey: "settings.navAi", icon: Brain },
+  { id: "report", labelKey: "settings.navReport", icon: Newspaper },
+  { id: "memory", labelKey: "settings.navMemory", icon: BrainCog },
+  { id: "data", labelKey: "settings.navData", icon: ShieldCheck },
+  { id: "token", labelKey: "settings.navToken", icon: KeyRound },
 ];
 
 /** 「保存设置」按钮覆盖的键（其余开关即时生效、AI 配置走独立保存）。 */
@@ -80,6 +82,7 @@ function Row({ label, children, hint }: { label: string; children: React.ReactNo
 
 /** 长期记忆：AI 问答会先查这里，把用户长期信息记在这里即可全局生效 */
 function MemorySection() {
+  const { t } = useI18n();
   const [items, setItems] = useState<MemoryItem[] | null>(null);
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
@@ -106,7 +109,7 @@ function MemorySection() {
     try {
       const r = await addMemory(text.trim());
       setText("");
-      toast(r.deduped ? "这条已经记过了，更新时间已刷新" : "已记住，问答时 AI 会参考它", "ok");
+      toast(r.deduped ? t("settings.memDup") : t("settings.memSaved"), "ok");
       void reload();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -116,10 +119,10 @@ function MemorySection() {
   };
 
   return (
-    <Section title="长期记忆" icon={<BrainCog className="w-4 h-4 text-muted-foreground" />} desc="AI 问答会先查这些记忆；你把长期信息（家庭、职业、计划）记在这里，问答就能用上">
+    <Section title={t("settings.navMemory")} icon={<BrainCog className="w-4 h-4 text-muted-foreground" />} desc={t("settings.memDesc")}>
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <label className={labelCls}>新增一条记忆</label>
+          <label className={labelCls}>{t("settings.memNew")}</label>
           <input
             className={inputCls}
             value={text}
@@ -127,23 +130,23 @@ function MemorySection() {
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();
             }}
-            placeholder="例如：明年计划买房 / 每月收入 2 万"
+            placeholder={t("settings.memPh")}
             maxLength={500}
           />
         </div>
         <Button size="sm" onClick={() => void submit()} disabled={busy || !text.trim()}>
-          <Plus className="w-3.5 h-3.5" /> 记住
+          <Plus className="w-3.5 h-3.5" /> {t("settings.memSave")}
         </Button>
       </div>
       {err && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{err}</div>}
 
       <div className="mt-3 flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
-          {items == null ? "读取中…" : items.length === 0 ? "还没有记忆" : `共 ${items.length} 条`}
+          {items == null ? t("settings.loading") : items.length === 0 ? t("settings.memEmpty") : t("settings.memCount", { n: items.length })}
         </span>
         {items && items.length > 0 && (
           <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => setClearOpen(true)}>
-            清空全部
+            {t("settings.memClear")}
           </Button>
         )}
       </div>
@@ -155,13 +158,13 @@ function MemorySection() {
               <span className="min-w-0 flex-1">
                 <span className="block break-words">{m.content}</span>
                 <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                  {m.kind !== "fact" ? `${m.kind} · ` : ""}更新于 {fmtDate(m.updated_at)}
+                  {m.kind !== "fact" ? `${m.kind} · ` : ""}{t("settings.memUpdated")} {fmtDate(m.updated_at)}
                 </span>
               </span>
               <button
                 className="shrink-0 text-muted-foreground hover:text-red-600"
                 onClick={() => void deleteMemory(m.id).then(reload)}
-                aria-label={`删除记忆 ${m.content}`}
+                aria-label={t("settings.memDelete", { c: m.content })}
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -172,15 +175,15 @@ function MemorySection() {
 
       <ConfirmDialog
         open={clearOpen}
-        title="清空全部长期记忆？"
-        description="AI 问答将不再参考这些记忆，此操作不可撤销。"
-        confirmText="清空"
+        title={t("settings.memClearTitle")}
+        description={t("settings.memClearDesc")}
+        confirmText={t("settings.memClear")}
         danger
         onOpenChange={setClearOpen}
         onConfirm={() => {
           void clearMemory().then(() => {
             setClearOpen(false);
-            toast("已清空长期记忆", "ok");
+            toast(t("settings.memCleared"), "ok");
             void reload();
           });
         }}
@@ -190,6 +193,7 @@ function MemorySection() {
 }
 
 export function SettingsView() {
+  const { t, lang, setLang } = useI18n();
   const { bootstrap } = store.useApp();
   const { toast } = useToast();
   const theme = useTheme();
@@ -242,7 +246,7 @@ export function SettingsView() {
     }
     try {
       await api("/api/budgets", { method: "PUT", body: JSON.stringify({ budgets: items }) });
-      toast("预算已保存", "ok");
+      toast(t("settings.budgetSaved"), "ok");
       store.bump();
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
@@ -263,7 +267,7 @@ export function SettingsView() {
   }, [loadReports]);
 
   if (!bootstrap) {
-    return <div className="p-8 text-center text-sm text-muted-foreground">加载中…</div>;
+    return <div className="p-8 text-center text-sm text-muted-foreground">{t("settings.loading")}</div>;
   }
 
   const save = async () => {
@@ -278,9 +282,9 @@ export function SettingsView() {
         body: JSON.stringify({ settings }),
       });
       if (res.errors.length) {
-        toast(`保存失败：${res.errors.join("；")}`, "error");
+        toast(`${t("settings.saveFail")}: ${res.errors.join("; ")}`, "error");
       } else {
-        toast("设置已保存", "ok");
+        toast(t("settings.saved"), "ok");
         await store.refreshBootstrap();
         store.bump();
       }
@@ -304,7 +308,7 @@ export function SettingsView() {
           body: JSON.stringify({ settings: { [k]: v } }),
         });
         if (res.errors.length) {
-          toast(`保存失败：${res.errors.join("；")}`, "error");
+          toast(`${t("settings.saveFail")}: ${res.errors.join("; ")}`, "error");
           return;
         }
         await store.refreshBootstrap();
@@ -319,7 +323,7 @@ export function SettingsView() {
     await api("/api/portfolio/reset", { method: "POST" });
     await store.refreshBootstrap();
     store.bump();
-    toast("已恢复示例数据", "ok");
+    toast(t("settings.demoRestored"), "ok");
   };
 
   const saveAi = async () => {
@@ -335,12 +339,12 @@ export function SettingsView() {
         }),
       });
       if (res.errors.length) {
-        toast(`保存失败：${res.errors.join("；")}`, "error");
+        toast(`${t("settings.saveFail")}: ${res.errors.join("; ")}`, "error");
         return;
       }
       await store.refreshBootstrap();
       store.bump();
-      toast("AI 配置已保存", "ok");
+      toast(t("settings.aiSaved"), "ok");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
@@ -352,10 +356,10 @@ export function SettingsView() {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `小满-备份-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `${BRAND.name}-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      toast("备份已下载", "ok");
+      toast(t("settings.backupDownloaded"), "ok");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
@@ -372,13 +376,13 @@ export function SettingsView() {
       });
       const c = r.counts;
       const parts = [
-        `持仓 ${c.positions ?? 0}`,
-        `流水 ${c.transactions ?? 0}`,
-        `订阅 ${c.subscriptions ?? 0}`,
-        `负债 ${c.debts ?? 0}`,
+        `${t("settings.pos")} ${c.positions ?? 0}`,
+        `${t("settings.tx")} ${c.transactions ?? 0}`,
+        `${t("settings.sub")} ${c.subscriptions ?? 0}`,
+        `${t("settings.debt")} ${c.debts ?? 0}`,
       ].filter((p) => Number(p.split(" ")[1]) > 0);
       toast(
-        parts.length ? `恢复完成：${parts.join("、")}（AI Key 需重新填写）` : "备份已恢复（AI Key 需重新填写）",
+        parts.length ? t("settings.restoreDone", { p: parts.join(", ") }) : t("settings.restoreDoneEmpty"),
         "ok",
       );
       await store.refreshBootstrap();
@@ -412,7 +416,7 @@ export function SettingsView() {
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
-              <span className="truncate">{s.label}</span>
+              <span className="truncate">{t(s.labelKey)}</span>
             </button>
           );
         })}
@@ -427,46 +431,67 @@ export function SettingsView() {
       >
       {/* 偏好：只留日常会动的两项，其余工程开关全部砍掉 */}
       {active === "prefs" && (
-      <Section title="偏好" icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />} desc="即时生效，保存在本机浏览器">
+      <Section title={t("settings.navPrefs")} icon={<SlidersHorizontal className="w-4 h-4 text-muted-foreground" />} desc={t("settings.prefsDesc")}>
         <div className="flex items-center justify-between">
-          <span className="text-sm">主题模式</span>
+          <span className="text-sm">{t("settings.theme")}</span>
           <Segmented
             value={themeMode}
             onChange={setTheme}
             options={[
-              { value: "light", label: "浅色" },
-              { value: "dark", label: "深色" },
-              { value: "system", label: "跟随系统" },
+              { value: "light", label: t("settings.light") },
+              { value: "dark", label: t("settings.dark") },
+              { value: "system", label: t("settings.system") },
             ]}
           />
         </div>
         <div className="mt-3 flex items-center justify-between">
           <div>
-            <div className="text-sm">语音提问</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">问答页显示麦克风按钮（需浏览器支持）</div>
+            <div className="text-sm">{t("settings.voice")}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{t("settings.voiceHint")}</div>
           </div>
-          <Switch checked={form.voice_input === "on"} onChange={() => toggle("voice_input")} label="语音提问" />
+          <Switch checked={form.voice_input === "on"} onChange={() => toggle("voice_input")} label={t("settings.voice")} />
+        </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm">{t("settings.language")}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{t("settings.languageHint")}</div>
+          </div>
+          <div className="flex gap-1.5">
+            {(["en", "zh"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setLang(l)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium border transition-colors",
+                  lang === l ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {l === "en" ? "English" : "中文"}
+              </button>
+            ))}
+          </div>
         </div>
       </Section>)}
 
       {/* 账本假设 */}
       {active === "rules" && (
-      <Section title="账本规则" icon={<Wallet className="w-4 h-4 text-muted-foreground" />} desc="用于结余、储蓄率、应急金等计算口径">
+      <Section title={t("settings.navRules")} icon={<Wallet className="w-4 h-4 text-muted-foreground" />} desc={t("settings.rulesDesc")}>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>月收入（元）</label>
+            <label className={labelCls}>{t("settings.monthlyIncome")}</label>
             <input className={inputCls} type="number" value={form.monthly_income ?? ""} onChange={(e) => set("monthly_income", e.target.value)} />
           </div>
           <div>
-            <label className={labelCls}>应急金目标（月）</label>
+            <label className={labelCls}>{t("settings.emergencyTarget")}</label>
             <input className={inputCls} type="number" value={form.emergency_target_months ?? ""} onChange={(e) => set("emergency_target_months", e.target.value)} />
           </div>
           <div className="col-span-2">
-            <label className={labelCls}>必要支出类别（逗号分隔，用于应急金口径）</label>
-            <input className={inputCls} value={form.essential_categories ?? ""} onChange={(e) => set("essential_categories", e.target.value)} placeholder="居住,餐饮,交通" />
+            <label className={labelCls}>{t("settings.essentialCats")}</label>
+            <input className={inputCls} value={form.essential_categories ?? ""} onChange={(e) => set("essential_categories", e.target.value)} placeholder={t("settings.essentialPh")} />
           </div>
           <div>
-            <label className={labelCls}>储蓄率目标（%）</label>
+            <label className={labelCls}>{t("settings.savingsGoal")}</label>
             <input className={inputCls} type="number" value={form.savings_goal ?? "20"} onChange={(e) => set("savings_goal", e.target.value)} />
           </div>
         </div>
@@ -475,29 +500,29 @@ export function SettingsView() {
       {/* 预算 */}
       {active === "budget" && (
       <Section
-        title="预算"
-        desc="设置本月总预算与分类预算，仪表盘实时展示进度、剩余日均与超支预警"
+        title={t("settings.navBudget")}
+        desc={t("settings.budgetDesc")}
       >
         <div className="space-y-3">
           <div>
-            <label className={labelCls}>本月总预算（元）</label>
-            <input className={inputCls} type="number" min="0" value={budgetTotal} onChange={(e) => setBudgetTotal(e.target.value)} placeholder="例如 5000" />
+            <label className={labelCls}>{t("settings.budgetTotal")}</label>
+            <input className={inputCls} type="number" min="0" value={budgetTotal} onChange={(e) => setBudgetTotal(e.target.value)} placeholder={t("settings.budgetTotalPh")} />
           </div>
           <div>
-            <label className={labelCls}>分类预算（每行「类别 金额」）</label>
+            <label className={labelCls}>{t("settings.budgetCats")}</label>
             <textarea
               className={`${inputCls} min-h-24`}
               value={budgetCats}
               onChange={(e) => setBudgetCats(e.target.value)}
-              placeholder={"餐饮 800\n交通 300\n购物 500"}
+              placeholder={t("settings.budgetCatsPh")}
             />
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted-foreground">
-              {budgetTotal ? `总预算 ¥${budgetTotal}` : "未设置总预算"} · 分类 {budgetCats.trim() ? budgetCats.trim().split("\n").filter((l) => l.trim()).length : 0} 项
+              {budgetTotal ? `${t("settings.budgetTotalLabel")} ¥${budgetTotal}` : t("settings.budgetNone")} · {t("settings.budgetCatCount", { n: budgetCats.trim() ? budgetCats.trim().split("\n").filter((l) => l.trim()).length : 0 })}
             </span>
             <Button variant="outline" size="sm" onClick={() => void saveBudget()} disabled={saving}>
-              保存预算
+              {t("settings.saveBudget")}
             </Button>
           </div>
         </div>
@@ -506,19 +531,19 @@ export function SettingsView() {
       {/* AI 回答 */}
       {active === "ai" && (
       <Section
-        title="AI 回答"
+        title={t("settings.navAi")}
         icon={<Brain className="w-4 h-4 text-muted-foreground" />}
-        desc="可选。接入任意 OpenAI 兼容模型（豆包 / DeepSeek / 通义等）。未配置或调用失败时自动回退内置分析。"
+        desc={t("settings.aiDesc")}
       >
         <div className="space-y-3">
-          <Row label="启用 AI 回答" hint="开启后问答优先使用 AI 生成，失败自动降级">
-            <Switch checked={form.ai_enabled === "on"} onChange={() => toggle("ai_enabled")} label="启用 AI 回答" />
+          <Row label={t("settings.aiEnable")} hint={t("settings.aiEnableHint")}>
+            <Switch checked={form.ai_enabled === "on"} onChange={() => toggle("ai_enabled")} label={t("settings.aiEnable")} />
           </Row>
           <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
-            开启后，你的持仓与账本摘要会随问题发送到你配置的模型服务商。介意数据出机请保持关闭，内置分析已能回答全部问题。
+            {t("settings.aiPrivacy")}
           </div>
           <div>
-            <label className={labelCls}>接口地址（Base URL）</label>
+            <label className={labelCls}>{t("settings.aiBaseUrl")}</label>
             <input
               className={inputCls}
               value={form.ai_base_url ?? ""}
@@ -527,7 +552,7 @@ export function SettingsView() {
             />
           </div>
           <div>
-            <label className={labelCls}>API Key（仅存本机）</label>
+            <label className={labelCls}>{t("settings.aiKey")}</label>
             <input
               className={inputCls}
               type="password"
@@ -538,20 +563,20 @@ export function SettingsView() {
             />
           </div>
           <div>
-            <label className={labelCls}>模型</label>
+            <label className={labelCls}>{t("settings.aiModel")}</label>
             <input
               className={inputCls}
               value={form.ai_model ?? ""}
               onChange={(e) => set("ai_model", e.target.value)}
-              placeholder="agnes-3.0-flash / deepseek-chat 等"
+              placeholder={t("settings.aiModelPh")}
             />
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted-foreground">
-              当前：{bootstrap.health.llm_configured ? `已启用（${bootstrap.health.model}）` : "未启用（内置分析）"}
+              {t("settings.current")}: {bootstrap.health.llm_configured ? `${t("settings.aiOn")}（${bootstrap.health.model}）` : t("settings.aiOff")}
             </span>
             <Button variant="outline" size="sm" onClick={() => void saveAi()}>
-              保存 AI 配置
+              {t("settings.saveAi")}
             </Button>
           </div>
         </div>
@@ -559,10 +584,10 @@ export function SettingsView() {
 
       {/* 每日晨报：默认只留时间 + 立即生成，历史收进折叠 */}
       {active === "report" && (
-      <Section title="每日晨报" icon={<Newspaper className="w-4 h-4 text-muted-foreground" />}>
+      <Section title={t("settings.navReport")} icon={<Newspaper className="w-4 h-4 text-muted-foreground" />}>
         <div className="flex items-end gap-2">
           <div className="w-36">
-            <label className={labelCls}>生成时间</label>
+            <label className={labelCls}>{t("settings.reportTime")}</label>
             <input className={inputCls} type="time" value={form.report_time ?? "08:00"} onChange={(e) => set("report_time", e.target.value)} />
           </div>
           <Button
@@ -574,10 +599,10 @@ export function SettingsView() {
                   method: "POST",
                 });
                 if (r.skipped) {
-                  toast("还没有数据，暂不生成晨报", "error");
+                  toast(t("settings.reportNoData"), "error");
                   return;
                 }
-                toast(r.ok ? "晨报已生成" : "生成失败", r.ok ? "ok" : "error");
+                toast(r.ok ? t("settings.reportDone") : t("settings.reportFail"), r.ok ? "ok" : "error");
                 store.bump();
                 void loadReports();
               } catch (e) {
@@ -585,16 +610,16 @@ export function SettingsView() {
               }
             }}
           >
-            <RefreshCw className="w-3.5 h-3.5" /> 立即生成
+            <RefreshCw className="w-3.5 h-3.5" /> {t("settings.reportGenerate")}
           </Button>
         </div>
         <div className="mt-2 text-xs text-muted-foreground">
-          {sc.enabled ? `下次：${sc.next_run_at ?? "—"}` : "定时任务未启用"}
-          {sc.generated > 0 ? ` · 已生成 ${sc.generated} 份` : ""}
+          {sc.enabled ? `${t("settings.reportNext")}: ${sc.next_run_at ?? "—"}` : t("settings.reportDisabled")}
+          {sc.generated > 0 ? ` · ${t("settings.reportCount", { n: sc.generated })}` : ""}
         </div>
         <details className="mt-3 group">
           <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-foreground">
-            最近晨报{reports.length > 0 ? `（${reports.length}）` : ""}
+            {t("settings.reportHistory")}{reports.length > 0 ? `（${reports.length}）` : ""}
           </summary>
           {reports.length > 0 && (
             <div className="mt-2 space-y-1.5">
@@ -617,36 +642,36 @@ export function SettingsView() {
       {active === "memory" && <MemorySection />}
 
       {active === "data" && (
-      <Section title="数据与状态" icon={<ShieldCheck className="w-4 h-4 text-muted-foreground" />}>
+      <Section title={t("settings.navData")} icon={<ShieldCheck className="w-4 h-4 text-muted-foreground" />}>
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>行情来源</span><span className="text-right text-foreground">{bootstrap.source.quotes}</span>
-            <span>组合数据</span><span className="text-right text-foreground">{bootstrap.source.portfolio}</span>
-            <span>模型</span>
+            <span>{t("settings.srcQuotes")}</span><span className="text-right text-foreground">{bootstrap.source.quotes}</span>
+            <span>{t("settings.srcPortfolio")}</span><span className="text-right text-foreground">{bootstrap.source.portfolio}</span>
+            <span>{t("settings.srcModel")}</span>
             <span className="text-right text-foreground">
-              {bootstrap.health.llm_configured ? bootstrap.health.model : "未配置（内置分析）"}
+              {bootstrap.health.llm_configured ? bootstrap.health.model : t("settings.modelNone")}
             </span>
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">
-              {bootstrap.source.seeded ? "当前为示例数据，可到「记账」改成自己的真实数据。" : "当前是你的真实数据。"}
+              {bootstrap.source.seeded ? t("settings.demoNote") : t("settings.realNote")}
             </div>
             <Button variant="outline" size="sm" onClick={() => setResetOpen(true)}>
-              恢复示例数据
+              {t("settings.restoreDemo")}
             </Button>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">导出全部数据为 JSON 备份（AI Key 已自动脱敏）</div>
+            <div className="text-xs text-muted-foreground">{t("settings.exportHint")}</div>
             <Button variant="outline" size="sm" onClick={() => void exportBackup()}>
-              <Download className="w-3.5 h-3.5" /> 导出备份
+              <Download className="w-3.5 h-3.5" /> {t("settings.exportBackup")}
             </Button>
           </div>
           <div className="flex items-center justify-between gap-2 pt-3 border-t border-border/60">
             <div className="text-xs text-muted-foreground">
-              从备份恢复全部数据（AI Key 不恢复，需重新填写；恢复会覆盖当前数据）
+              {t("settings.importHint")}
             </div>
             <label className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-transparent px-3 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
-              <Upload className="w-3.5 h-3.5" /> 导入备份
+              <Upload className="w-3.5 h-3.5" /> {t("settings.importBackup")}
               <input
                 type="file"
                 accept=".json,application/json"
@@ -664,25 +689,25 @@ export function SettingsView() {
 
       {/* 访问口令 */}
       {active === "token" && (
-      <Section title="访问口令" icon={<KeyRound className="w-4 h-4 text-muted-foreground" />}>
+      <Section title={t("settings.navToken")} icon={<KeyRound className="w-4 h-4 text-muted-foreground" />}>
         <div className="flex items-end gap-2">
           <div className="flex-1">
-            <label className={labelCls}>浏览器端口令（留空清除）</label>
-            <input className={inputCls} type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="后端 API_TOKEN 相同时才有效" />
+            <label className={labelCls}>{t("settings.tokenInput")}</label>
+            <input className={inputCls} type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("settings.tokenPh")} />
           </div>
-          <Button size="sm" onClick={() => { setToken(tokenInput.trim()); toast("口令已更新", "ok"); }}>
-            保存
+          <Button size="sm" onClick={() => { setToken(tokenInput.trim()); toast(t("settings.tokenUpdated"), "ok"); }}>
+            {t("settings.save")}
           </Button>
         </div>
         <div className="mt-2 text-[11px] text-muted-foreground">
-          未在服务端设置 API_TOKEN 时无需口令；公网部署请务必设置。
+          {t("settings.tokenHint")}
         </div>
       </Section>)}
 
       {/* 全局保存只覆盖「账本规则 / 每日晨报」的表单字段；其余界面各自即存或有独立保存按钮 */}
       {(active === "rules" || active === "report") && (
         <Button className="w-full" onClick={() => void save()} disabled={saving}>
-          {saving ? "保存中…" : "保存设置"}
+          {saving ? t("settings.saving") : t("settings.saveSettings")}
         </Button>
       )}
       </motion.div>
@@ -690,9 +715,9 @@ export function SettingsView() {
       <ConfirmDialog
         open={resetOpen}
         onOpenChange={setResetOpen}
-        title="恢复示例数据"
-        description="恢复示例数据会覆盖当前的持仓、流水与负债，确定吗？"
-        confirmText="恢复"
+        title={t("settings.restoreDemoTitle")}
+        description={t("settings.restoreDemoDesc")}
+        confirmText={t("settings.restoreDemo")}
         danger
         onConfirm={() => void resetSeed()}
       />
@@ -702,9 +727,9 @@ export function SettingsView() {
         onOpenChange={(o) => {
           if (!o) setPendingImport(null);
         }}
-        title="从备份恢复"
-        description="恢复会覆盖当前全部数据（持仓、流水、订阅、负债、预算、会话）。AI Key 不会恢复，需重新填写。确定继续吗？"
-        confirmText="恢复"
+        title={t("settings.restoreTitle")}
+        description={t("settings.restoreDesc")}
+        confirmText={t("settings.restoreDemo")}
         danger
         onConfirm={() => {
           const f = pendingImport;

@@ -13,6 +13,7 @@ import { store } from "@/lib/store";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 // 问答页（含 markdown 渲染 ~153KB）按需加载：问答是默认首屏，echarts 仍不进首屏
 const ChatView = lazy(() => import("@/components/ChatView").then((m) => ({ default: m.ChatView })));
@@ -20,13 +21,14 @@ const ChatView = lazy(() => import("@/components/ChatView").then((m) => ({ defau
 type Tab = "dashboard" | "chat" | "ledger" | "settings";
 
 const NAV = [
-  { id: "chat" as const, label: "问答", icon: MessageSquare },
-  { id: "ledger" as const, label: "记账", icon: NotebookPen },
-  { id: "dashboard" as const, label: "总览", icon: LayoutDashboard },
-  { id: "settings" as const, label: "设置", icon: Settings },
+  { id: "chat" as const, labelKey: "nav.chat", icon: MessageSquare },
+  { id: "ledger" as const, labelKey: "nav.ledger", icon: NotebookPen },
+  { id: "dashboard" as const, labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { id: "settings" as const, labelKey: "nav.settings", icon: Settings },
 ];
 
 export default function App() {
+  const { t } = useI18n();
   const { sessions, bootstrap } = store.useApp();
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("chat");
@@ -93,7 +95,7 @@ export default function App() {
             setActiveThread(next?.thread_id ?? null);
           }
         }
-        toast("会话已删除", "ok");
+        toast(t("app.sessionDeleted"), "ok");
       } catch (e) {
         toast(e instanceof Error ? e.message : String(e), "error");
       }
@@ -164,7 +166,7 @@ export default function App() {
               <Suspense
                 fallback={
                   <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    正在准备会话…
+                    {t("app.preparing")}
                   </div>
                 }
               >
@@ -178,7 +180,7 @@ export default function App() {
                   />
                 ) : (
                   <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    正在准备会话…
+                    {t("app.preparing")}
                   </div>
                 )}
               </Suspense>
@@ -202,7 +204,7 @@ export default function App() {
         </main>
 
         {/* 移动端底部导航 */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 glass border-t border-border grid grid-cols-4" aria-label="主导航">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 glass border-t border-border grid grid-cols-4" aria-label={t("nav.main")}>
           {NAV.map((n) => (
             <button
               key={n.id}
@@ -223,7 +225,7 @@ export default function App() {
                 />
               )}
               <n.icon className="w-5 h-5" />
-              {n.label}
+              {t(n.labelKey)}
             </button>
           ))}
         </nav>
@@ -234,9 +236,9 @@ export default function App() {
         onOpenChange={(o) => {
           if (!o) setPendingDelete(null);
         }}
-        title="删除会话"
-        description="删除该会话及其全部问答记录？此操作无法撤销。"
-        confirmText="删除"
+        title={t("app.deleteTitle")}
+        description={t("app.deleteDesc")}
+        confirmText={t("app.delete")}
         danger
         onConfirm={() => {
           const t = pendingDelete;
