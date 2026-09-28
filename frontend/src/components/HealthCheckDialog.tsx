@@ -71,7 +71,7 @@ export function HealthCheckDialog({ open, onOpenChange }: { open: boolean; onOpe
                     <div key={d.key} className="rounded-lg border border-border px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium">{d.title}</span>
-                        <Badge variant={st.variant}>{st.text}</Badge>
+                        <Badge variant={st.variant}>{t(st.text)}</Badge>
                       </div>
                       <p className="mt-1 text-xs text-foreground/80">{d.detail}</p>
                       {d.suggestion && <p className="mt-1 text-xs text-muted-foreground">{t("hc.suggestion")}: {d.suggestion}</p>}
