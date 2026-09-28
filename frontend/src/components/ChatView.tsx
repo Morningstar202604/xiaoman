@@ -108,6 +108,7 @@ export function ChatView({
   const abortRef = useRef<AbortController | null>(null);
   const recogRef = useRef<{ stop: () => void } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 会话本地过滤（量小，无需后端）
   const kw = sessionSearch.trim().toLowerCase();
@@ -175,6 +176,13 @@ export function ChatView({
       abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId]);
+
+  // 桌面端自动聚焦输入框：打开 / 切换会话后即可直接打字（移动端不弹键盘）
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      inputRef.current?.focus();
+    }
   }, [threadId]);
 
   const send = async (text: string, opts?: { regenerate?: boolean }) => {
@@ -602,6 +610,7 @@ export function ChatView({
             </Button>
           )}
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

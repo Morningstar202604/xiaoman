@@ -204,7 +204,7 @@ export default function App() {
         </main>
 
         {/* 移动端底部导航 */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 glass border-t border-border grid grid-cols-4" aria-label={t("nav.main")}>
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 glass border-t border-border grid grid-cols-4 pb-[env(safe-area-inset-bottom)]" aria-label={t("nav.main")}>
           {NAV.map((n) => (
             <button
               key={n.id}

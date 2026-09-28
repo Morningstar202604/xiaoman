@@ -15,6 +15,25 @@
 一个**对话优先（chat-first）**的个人财务助手：先当通用问答助手打开，有数据后再叠加组合持仓 / 风控规则引擎的确定性分析（未接入模型时内置分析兜底）+ PWA 移动端。
 数据全部存在本地 SQLite，行情走东方财富（失败自动降级快照），模型走国内 OpenAI 兼容端点，不依赖国外服务。
 
+---
+
+## 🌾 Brand
+
+**Xiaoman（小满）** — named after the 24-solar-term *Grain Buds*, when grain fills but is not yet full.
+Saving works the same way: build steadily, and wealth arrives in its own measure.
+
+- **Name**: 小满 (Xiaoman) ｜ English: Xiaoman
+- **Slogan**: 慢慢存，小满即富 — *Save steadily, prosper in full*
+- **Tagline**: 记一笔，问一句 — *Log one line, ask one line*
+- **Language**: English-first UI with one-click Chinese switch (answers follow the UI language)
+- **Stack**: LangGraph multi-agent orchestration · FastAPI · React 19 + Vite + Tailwind · SQLite (local-first) · Eastmoney quotes (auto fallback to snapshot) · PWA
+
+A **chat-first personal finance agent**: open it and start typing; record a transaction in one sentence
+("lunch 35 yuan"), ask about your portfolio, run a 5-dimension health check, track goals and get a
+daily brief — every number comes from a deterministic local engine, and the LangGraph state graph
+routes supervision / market / ledger / risk / memory / record / finalize agents (LLM optional, graceful
+fallback to built-in analysis when no model is connected).
+
 > 设计原则：**确定性内核优先**（数字全部由规则引擎计算，可靠免费秒级）；**编排交给主流 agent 框架**
 > （LangGraph 多智能体状态图：supervisor 分类 + 市场/账本/风控/记账/成文专门 agent 节点，
 > 图负责编排与状态流转，模型只出现在分类与成文两步，任一失败自动降级确定性路径）；
