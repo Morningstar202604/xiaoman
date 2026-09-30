@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { LayoutDashboard, LineChart, MessageSquare, NotebookPen, Sparkles, Wallet, X } from "lucide-react";
 import { TopBar, type TopTab } from "@/components/TopBar";
@@ -50,6 +50,22 @@ export default function App() {
     void store.refreshDashboard();
     void store.refreshSessions().finally(() => setInited(true));
   }, []);
+
+  // 涨跌颜色主题（设置中心自定义）：cn 红涨绿跌 / us 绿涨红跌，即时作用于 --color-up/down
+  const colorScheme = bootstrap?.settings.color_scheme ?? "cn";
+  useEffect(() => {
+    document.documentElement.dataset.scheme = colorScheme === "us" ? "us" : "cn";
+  }, [colorScheme]);
+
+  // 默认首页（设置中心自定义）：首次加载完成后落地，之后用户手动切换不受影响
+  const defaultTab = bootstrap?.settings.default_tab;
+  const defaultApplied = useRef(false);
+  useEffect(() => {
+    if (!defaultApplied.current && (defaultTab === "overview" || defaultTab === "holdings" || defaultTab === "market" || defaultTab === "ledger" || defaultTab === "chat")) {
+      setTab(defaultTab);
+      defaultApplied.current = true;
+    }
+  }, [defaultTab]);
 
   // 仪表盘自动刷新（设置中心开关）
   const autoRefresh = bootstrap?.settings.auto_refresh === "on";

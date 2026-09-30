@@ -71,12 +71,22 @@ function TopHoldings({ dashboard }: { dashboard: DashboardData }) {
   const { t: tr } = useI18n();
   const rows = dashboard.positions.filter((p) => p.kind !== "现金").slice(0, 5);
   if (!rows.length) return null;
+  // 行情来源醒目标注：非东财实时价（快照/降级）时显示「离线估值」徽标
+  const src = dashboard.source.quotes ?? "";
+  const isSnapshot = src.includes("快照");
   return (
     <Card className="p-[var(--card-pad)]">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-medium">{tr("dash.topHoldings")}</span>
-        <span className="text-[11px] text-muted-foreground">
-          {tr("dash.todayPnl")} · {tr("dash.totalPnl")} · {tr("dash.holdingsValue")}
+        <span className="flex items-center gap-2">
+          {isSnapshot && (
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-700">
+              {tr("dash.offlineValuation")}
+            </span>
+          )}
+          <span className="text-[11px] text-muted-foreground">
+            {tr("dash.todayPnl")} · {tr("dash.totalPnl")} · {tr("dash.holdingsValue")}
+          </span>
         </span>
       </div>
       <ul className="space-y-2">

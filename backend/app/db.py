@@ -122,6 +122,8 @@ SEED_SETTINGS = {
     "auto_refresh": "off",  # 仪表盘定时自动刷新
     "auto_refresh_seconds": "300",  # 自动刷新间隔（秒）
     "compact_numbers": "on",  # 大金额缩写（万/亿）
+    "color_scheme": "cn",  # 涨跌颜色：cn 红涨绿跌（A股惯例）| us 绿涨红跌（海外惯例）
+    "default_tab": "overview",  # 默认首页：overview|holdings|market|ledger|chat
     "savings_goal": "20",  # 储蓄率目标（%）
     # ---- AI 回答（OpenAI 兼容端点，可配任意国产/海外模型；失败自动降级模板）----
     "ai_enabled": "on",  # 是否启用 AI 回答（AI 优先；三要素未配或调用失败时回退内置分析）

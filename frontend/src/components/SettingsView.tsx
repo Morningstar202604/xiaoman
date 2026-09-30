@@ -492,6 +492,39 @@ export function SettingsView() {
             ))}
           </div>
         </div>
+        {/* 涨跌颜色：A股红涨绿跌 / 海外绿涨红跌 */}
+        <div className="mt-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm">{t("settings.colorScheme")}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{t("settings.colorSchemeHint")}</div>
+          </div>
+          <Segmented
+            value={form.color_scheme ?? "cn"}
+            onChange={(v) => set("color_scheme", v)}
+            options={[
+              { value: "cn", label: t("settings.cnScheme") },
+              { value: "us", label: t("settings.usScheme") },
+            ]}
+          />
+        </div>
+        {/* 默认首页 */}
+        <div className="mt-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm">{t("settings.defaultTab")}</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{t("settings.defaultTabHint")}</div>
+          </div>
+          <Segmented
+            value={form.default_tab ?? "overview"}
+            onChange={(v) => set("default_tab", v)}
+            options={[
+              { value: "overview", label: t("nav.dashboard") },
+              { value: "holdings", label: t("nav.holdings") },
+              { value: "market", label: t("nav.market") },
+              { value: "ledger", label: t("nav.ledger") },
+              { value: "chat", label: t("nav.chat") },
+            ]}
+          />
+        </div>
       </Section>)}
 
       {/* 账本假设 */}

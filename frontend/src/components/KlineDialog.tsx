@@ -58,7 +58,11 @@ export function KlineDialog({
     const first = pts[0]?.close;
     const last = pts[pts.length - 1]?.close;
     const up = first != null && last != null && last >= first;
-    const lineColor = up ? "#16a34a" : "#dc2626";
+    // K 线涨跌色跟随全局颜色主题（--color-up/--color-down：A股红涨绿跌，可切换海外）
+    const rootStyle = getComputedStyle(document.documentElement);
+    const lineColor = up
+      ? rootStyle.getPropertyValue("--color-up").trim() || "#dc2626"
+      : rootStyle.getPropertyValue("--color-down").trim() || "#059669";
     return {
       tooltip: { trigger: "axis", triggerOn: "click", renderMode: "richText", confine: true },
       grid: { left: 8, right: 8, top: 20, bottom: 4, containLabel: true },

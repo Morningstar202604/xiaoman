@@ -567,6 +567,8 @@ NUMERIC_KEYS = (
     "auto_refresh_seconds",
 )
 QUOTE_MODES = ("auto", "snapshot", "eastmoney")
+COLOR_SCHEMES = ("cn", "us")
+DEFAULT_TABS = ("overview", "holdings", "market", "ledger", "chat")
 ONOFF_KEYS = (
     "voice_input",
     "show_export",
@@ -618,6 +620,16 @@ async def put_settings(payload: dict) -> dict:
         elif key == "quote_source_mode":
             if raw not in QUOTE_MODES:
                 errors.append(f"行情源只能是 {'/'.join(QUOTE_MODES)}")
+                continue
+            applied[key] = raw
+        elif key == "color_scheme":
+            if raw not in COLOR_SCHEMES:
+                errors.append(f"涨跌颜色只能是 {'/'.join(COLOR_SCHEMES)}")
+                continue
+            applied[key] = raw
+        elif key == "default_tab":
+            if raw not in DEFAULT_TABS:
+                errors.append(f"默认首页只能是 {'/'.join(DEFAULT_TABS)}")
                 continue
             applied[key] = raw
         elif key == "report_time":
