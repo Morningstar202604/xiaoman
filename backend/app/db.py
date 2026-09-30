@@ -118,16 +118,16 @@ SEED_SETTINGS = {
     "voice_input": "off",  # 问答语音输入（浏览器支持时）
     "show_export": "on",  # 回答导出/复制按钮
     "expand_process": "off",  # 分析过程默认展开
-    "show_suggestions": "on",  # 问答页建议入口
+    "show_suggestions": "off",  # 问答页建议入口（R4 起输入区常驻快捷指令 chips，空态建议默认关）
     "auto_refresh": "off",  # 仪表盘定时自动刷新
     "auto_refresh_seconds": "300",  # 自动刷新间隔（秒）
     "compact_numbers": "on",  # 大金额缩写（万/亿）
     "savings_goal": "20",  # 储蓄率目标（%）
     # ---- AI 回答（OpenAI 兼容端点，可配任意国产/海外模型；失败自动降级模板）----
     "ai_enabled": "on",  # 是否启用 AI 回答（AI 优先；三要素未配或调用失败时回退内置分析）
-    "ai_base_url": "",  # 如 https://apihub.agnes-ai.com/v1
+    "ai_base_url": "",  # 国产示例：DeepSeek https://api.deepseek.com/v1 · 豆包 https://ark.cn-beijing.volces.com/api/v3 · 通义 https://dashscope.aliyuncs.com/compatible-mode/v1
     "ai_api_key": "",  # 仅存本机数据库
-    "ai_model": "",  # 如 agnes-3.0-flash
+    "ai_model": "",  # 对应端点模型：deepseek-chat / doubao 接入点 ID / qwen-plus
     "data_note": "seed",
 }
 
@@ -205,9 +205,14 @@ CREATE TABLE IF NOT EXISTS goals (
     deadline   TEXT NOT NULL DEFAULT '',   -- 目标月份 YYYY-MM（'' 未设）
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS watchlist (
+    symbol     TEXT PRIMARY KEY,
+    name       TEXT NOT NULL DEFAULT '',
+    kind       TEXT NOT NULL DEFAULT '股票',
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS user_memory (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    content    TEXT NOT NULL,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,    content    TEXT NOT NULL,
     kind       TEXT NOT NULL DEFAULT 'fact', -- fact / preference / goal_related
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -497,6 +502,53 @@ async def delete_position(symbol: str) -> dict[str, Any]:
     return {"ok": True, "deleted": cur.rowcount}
 
 
+# --------------------------------------------------------------------------
+# 自选行情（watchlist）
+# --------------------------------------------------------------------------
+
+
+async def list_watchlist() -> list[dict[str, Any]]:
+    conn = await _conn()
+    cur = await conn.execute("SELECT symbol,name,kind,created_at FROM watchlist ORDER BY created_at")
+    rows = await cur.fetchall()
+    return [
+        {"symbol": r[0], "name": r[1], "kind": r[2], "created_at": r[3]}
+        for r in rows
+    ]
+
+
+async def add_watchlist(symbol: str, name: str = "", kind: str = "股票") -> dict[str, Any]:
+    sym = str(symbol).strip().upper()
+    if not sym:
+        raise ValueError("代码不能为空")
+    import datetime as _dt
+
+    conn = await _conn()
+    await conn.execute(
+        "INSERT INTO watchlist(symbol,name,kind,created_at) VALUES(?,?,?,?)"
+        " ON CONFLICT(symbol) DO UPDATE SET name=excluded.name, kind=excluded.kind",
+        (
+            sym,
+            str(name).strip()[:40] or sym,
+            str(kind).strip()[:10] or "股票",
+            _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        ),
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "symbol": sym}
+
+
+async def delete_watchlist(symbol: str) -> dict[str, Any]:
+    conn = await _conn()
+    cur = await conn.execute(
+        "DELETE FROM watchlist WHERE symbol=?", (symbol.strip().upper(),)
+    )
+    await _mark_user_data(conn)
+    await conn.commit()
+    return {"ok": True, "deleted": cur.rowcount}
+
+
 async def add_transaction(
     date: str, item: str, category: str, amount: float
 ) -> dict[str, Any]:
@@ -767,6 +819,7 @@ async def save_run(
     llm: str = "",
     route_reason: str = "",
     tools: list[str] | None = None,
+    skip_session: bool = False,
 ) -> dict[str, Any]:
     conn = await _conn()
     created = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -787,7 +840,10 @@ async def save_run(
         ),
     )
     await conn.commit()
-    await upsert_session(thread_id or "default", question)
+    if not skip_session:
+        # 会话列表只收录真实对话；定时晨报等系统归档（thread_id='cron'）不建会话，
+        # 晨报历史仍按 thread_id='cron' 从 runs 表读取，不污染「问AI」会话列表。
+        await upsert_session(thread_id or "default", question)
     return {"ok": True, "id": cur.lastrowid}
 
 

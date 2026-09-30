@@ -62,6 +62,9 @@ class AgentState(TypedDict, total=False):
     has_data: bool
     parsed: dict[str, Any] | None
     result: dict[str, Any]
+    # collect_market 写入、collect_ledger / finalize 复用：避免同一轮持仓+行情被重复拉取
+    positions: list[dict[str, Any]] | None
+    live: dict[str, float] | None
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +139,8 @@ async def collect_market(state: AgentState) -> dict[str, Any]:
             "detail": f"总市值 {market['total_market_value']:,.0f} 元，累计{'浮盈' if market['total_pnl'] >= 0 else '浮亏'} {abs(market['total_pnl']):,.0f} 元",
             "phase": "done",
         })
-    return {"market": market}
+    # positions/live 写入 state 供 collect_ledger、finalize 复用（同轮只拉一次）
+    return {"market": market, "positions": positions, "live": live}
 
 
 async def collect_ledger(state: AgentState) -> dict[str, Any]:
@@ -145,8 +149,12 @@ async def collect_ledger(state: AgentState) -> dict[str, Any]:
         return {}
     if state.get("mode") == "deterministic":
         await _emit({"type": "step", "id": "ledger", "label": "核对账本", "detail": "汇总本月收支、订阅、负债与应急金", "phase": "start"})
-    positions = await db.list_positions()
-    live = await live_quotes(positions)
+    positions = state.get("positions")
+    if positions is None:
+        positions = await db.list_positions()
+    live = state.get("live")
+    if live is None:
+        live = await live_quotes(positions)
     settings = await db.get_settings()
     ledger = analysis.ledger_view(
         await db.list_transactions(),
@@ -197,8 +205,10 @@ async def finalize(state: AgentState) -> dict[str, Any]:
     ledger = state.get("ledger")
     flags = state.get("flags") or []
     # 空数据判定与旧流程一致：没有任何持仓且没有任何流水 → 引导记账（不是零值假象）
-    if state.get("mode") != "agent":
+    positions = state.get("positions")
+    if positions is None:
         positions = await db.list_positions()
+    if state.get("mode") != "agent":
         has_data = bool(positions) or bool(
             await db.fetch_all("SELECT 1 FROM transactions LIMIT 1")
         )
@@ -213,8 +223,9 @@ async def finalize(state: AgentState) -> dict[str, Any]:
         try:
             history = await service._build_history(tid)
             result = await agent.run_agent(q, _emit, history, state.get("lang", "zh"))
-            positions = await db.list_positions()
-            live = await live_quotes(positions)
+            live = state.get("live")
+            if live is None:
+                live = await live_quotes(positions)
             m = analysis.market_view(positions, live) if "market" in routes else market
             led = (
                 analysis.ledger_view(

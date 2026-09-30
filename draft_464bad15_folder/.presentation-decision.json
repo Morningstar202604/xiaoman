@@ -1,0 +1,1 @@
+{"audience":"小满项目 owner（开发者/产品决策人）","reader_task":"按代码证据判断哪些旧功能该砍/去/优/调，确认下一步执行顺序","genre_contract":null,"adapter":null,"presentation_mode":"rich","visual_plan":{"reason":"核心是四类拆解清单与冗余定位、行动优先级：用 3 个 html5-block 分别承载分类总览、数据流冗余定位、行动时间线；明细用原生表格","blocks":[{"type":"html5-block","min_count":3,"purpose":"分类总览泳道图、数据流冗余定位图、P0/P1/P2 行动时间线"}]}}

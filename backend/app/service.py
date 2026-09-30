@@ -299,8 +299,8 @@ async def run_question(
     """执行一轮问答，返回最终元信息（由调用方负责归档与转发 final 事件）。
 
     主路径：LangGraph 多智能体图（agent_graph.run_graph）。
-    图任何一步失败（节点异常/模型调用异常等）→ 降级本模块旧顺序流程（_legacy），
-    保证与图同构的输出与事件，服务不中断、不冒充模型结果。
+    图内已内置降级：模型不可用/工具循环失败 → 确定性模板成文（图内降级，无旧双轨），
+    输出与事件契约与 agent 模式同构，服务不中断、不冒充模型结果。
     lang：界面语言（zh/en），回答与确定性兜底文案跟随。
     """
     await emit({"type": "start", "question": question})

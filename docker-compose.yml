@@ -19,7 +19,7 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-}
     volumes:
-      - wo-data:/app/backend/data
+      - xiaoman-data:/app/backend/data
 
 volumes:
-  wo-data:
+  xiaoman-data:

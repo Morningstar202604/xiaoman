@@ -14,7 +14,7 @@ const inputCls =
 /** 目标进度条（按完成比例着色） */
 function ProgressBar({ pct }: { pct: number }) {
   const clamped = Math.max(0, Math.min(100, pct));
-  const color = pct >= 100 ? "bg-down" : pct >= 50 ? "bg-primary" : "bg-amber-500";
+  const color = pct >= 100 ? "bg-success" : pct >= 50 ? "bg-primary" : "bg-amber-500";
   return (
     <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
       <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${clamped}%` }} />

@@ -22,6 +22,18 @@ from openai import AsyncOpenAI
 
 load_dotenv()
 
+# 国产供应商预设（OpenAI 兼容；设置中心「AI 回答」可按此引导快速配置）
+PROVIDERS: dict[str, dict[str, str]] = {
+    "deepseek": {"name": "DeepSeek", "base": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "doubao": {"name": "豆包", "base": "https://ark.cn-beijing.volces.com/api/v3", "model": ""},  # model=火山方舟推理接入点 ID
+    "qwen": {"name": "通义千问", "base": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus"},
+}
+
+
+def provider_presets() -> dict[str, dict[str, str]]:
+    """返回国产供应商预设（不含密钥），供前端设置页引导使用。"""
+    return {k: {"name": v["name"], "base": v["base"], "model": v["model"]} for k, v in PROVIDERS.items()}
+
 # 重试：连接错误/超时/429/5xx 最多重试 2 次（SDK 默认值），退避由 SDK 处理
 MAX_RETRIES = 2
 STREAM_TIMEOUT = 60.0

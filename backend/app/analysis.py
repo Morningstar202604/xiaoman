@@ -354,6 +354,8 @@ async def collect_dashboard() -> dict[str, Any]:
     led = ledger_view(txs, subs, debts, settings, positions, live)
     flags = risk_checks(m, led)
     goals = goal_progress(await db.list_goals())
+    indices = await quotes.indices_quotes()
+    today_pnl = await quotes.portfolio_today_pnl(positions)
 
     return {
         "positions": m["positions"],
@@ -388,6 +390,8 @@ async def collect_dashboard() -> dict[str, Any]:
         },
         "emergency": led["emergency"],
         "flags": flags,
+        "indices": indices,
+        "today_pnl": today_pnl,
         "transactions": txs,
         "source": {
             "portfolio": "本地组合库（SQLite）",

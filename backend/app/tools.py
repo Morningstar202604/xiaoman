@@ -12,8 +12,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
+
 from . import analysis, db, nlparse
 from .quotes import kline as fetch_kline
+from .quotes import quote_now
 
 # ---------------------------------------------------------------------------
 # 工具执行体（纯函数，可单测）
@@ -256,6 +259,145 @@ async def tool_get_health_check(_args: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 行情 / 自选 / 持仓工具：让「一句话工作流」成立——
+# 搜标的 → 看行情 → 加入自选 → 看 K 线/风险 → 记录买入，全程由模型编排。
+# ---------------------------------------------------------------------------
+
+_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
+_SEARCH_HEADERS = {"User-Agent": "Mozilla/5.0 (xiaoman)", "Referer": "https://quote.eastmoney.com/"}
+
+
+async def tool_search_symbol(args: dict[str, Any]) -> str:
+    """搜 A股/基金/指数（东财 suggest）；网络失败返回明确提示。"""
+    kw = str(args.get("query") or "").strip()
+    if not kw:
+        return "需要提供搜索关键词，例如「茅台」「600519」"
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(
+                _SEARCH_URL,
+                params={"input": kw, "type": "14", "token": "D43BF722C8E33BDC906FB84D85E326E8"},
+                headers=_SEARCH_HEADERS,
+            )
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data") or {}
+        rows = ((data.get("QuotationCodeTable") or {}).get("Data") or [])[:8]
+    except Exception:  # noqa: BLE001 — 搜索失败给可读提示
+        return "搜索服务暂时不可用（网络或行情源问题），请稍后再试"
+    lines = []
+    for r in rows:
+        code = str(r.get("Code") or "").strip()
+        name = str(r.get("Name") or "").strip()
+        if not code or not name:
+            continue
+        stype = str(r.get("SecurityTypeName") or "")
+        kind = "基金" if "基金" in stype else ("指数" if "指" in stype else "股票")
+        lines.append(f"{name}（{code}，{kind}）")
+    if not lines:
+        return f"没有找到「{kw}」，试试完整代码或名称"
+    return "搜索结果：\n" + "\n".join(lines)
+
+
+async def tool_get_quote(args: dict[str, Any]) -> str:
+    """单只标的实时行情（东财优先、新浪备源）。"""
+    symbol = str(args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return "需要提供代码，例如 600519"
+    q = await quote_now(symbol)
+    if q is None:
+        return f"无法获取 {symbol} 的行情（可能不是 A股/ETF，或网络不可用）"
+    name = q.get("name") or symbol
+    pct = q.get("change_pct")
+    pct_txt = f"{pct:+.2f}%" if pct is not None else "—"
+    src = {"eastmoney": "东财", "sina": "新浪"}.get(q.get("source"), q.get("source", ""))
+    return f"{name}（{symbol}）现价 {q['price']}，涨跌 {pct_txt}（来源：{src}）"
+
+
+async def tool_add_watchlist(args: dict[str, Any]) -> str:
+    """把标的加入自选（无名称时自动取实时名称）。"""
+    symbol = str(args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return "需要提供代码，例如 600519"
+    name = str(args.get("name") or "").strip()
+    if not name:
+        q = await quote_now(symbol)
+        name = (q or {}).get("name") or symbol
+    try:
+        await db.add_watchlist(symbol, name, str(args.get("kind") or "股票"))
+    except Exception as exc:  # noqa: BLE001
+        return f"添加自选失败：{exc}"
+    return f"已把 {name}（{symbol}）加入自选。可以继续问它的行情、K 线或风险。"
+
+
+async def tool_remove_watchlist(args: dict[str, Any]) -> str:
+    symbol = str(args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return "需要提供代码"
+    await db.delete_watchlist(symbol)
+    return f"已把 {symbol} 移出自选"
+
+
+async def tool_get_watchlist(_args: dict[str, Any]) -> str:
+    items = await db.list_watchlist()
+    if not items:
+        return "自选列表是空的。可以让我帮你搜索并添加，例如「帮我看看茅台并加入自选」"
+    lines = []
+    for i in items:
+        q = await quote_now(i["symbol"])
+        if q:
+            pct = q.get("change_pct")
+            pct_txt = f"{pct:+.2f}%" if pct is not None else "—"
+            lines.append(f"{i['name']}（{i['symbol']}）现价 {q['price']} {pct_txt}")
+        else:
+            lines.append(f"{i['name']}（{i['symbol']}）行情暂不可用")
+    return "你的自选：\n" + "\n".join(lines)
+
+
+async def tool_record_position(args: dict[str, Any]) -> str:
+    """记录一笔买入持仓（份额/成本/现价必填；现价可从实时行情自动补）。"""
+    symbol = str(args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return "需要提供代码，例如 600519"
+    try:
+        shares = float(args.get("shares") or 0)
+        cost = float(args.get("cost") or 0)
+        last = float(args.get("last") or 0)
+    except (TypeError, ValueError):
+        return "份额/成本/现价需要是数字"
+    if shares <= 0 or cost <= 0:
+        return "需要份额（>0）与成本价（>0）"
+    if last <= 0:
+        q = await quote_now(symbol)
+        last = float((q or {}).get("price") or 0)
+    if last <= 0:
+        return "无法取得现价，请提供 last 现价"
+    name = str(args.get("name") or "").strip()
+    if not name:
+        q = await quote_now(symbol)
+        name = (q or {}).get("name") or symbol
+    try:
+        await db.add_position(
+            {
+                "symbol": symbol,
+                "name": name,
+                "kind": str(args.get("kind") or "股票"),
+                "industry": str(args.get("industry") or "其他"),
+                "shares": shares,
+                "cost": cost,
+                "last": last,
+                "buy_date": str(args.get("buy_date") or "") or None,
+                "fee": 0,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        return f"记录失败：{exc}"
+    return (
+        f"已记录买入 {name}（{symbol}）：{shares:g} 份 × 成本 {cost:g}，现价 {last:g}。"
+        "可在总览/持仓页查看最新盈亏。"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 工具注册表：OpenAI function calling 的 JSON Schema + 执行体
 # ---------------------------------------------------------------------------
 
@@ -380,6 +522,91 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_symbol",
+            "description": "搜索 A股/基金/指数（按代码或名称，如「茅台」「600519」）。用于用户想了解某只标的但不知道代码，或要先找到标的再决定看行情/加自选。",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "搜索关键词，代码或名称"}},
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_quote",
+            "description": "查询单只标的实时行情：现价、涨跌幅、来源（东财/新浪）。适合「茅台现在多少钱」「今天涨了吗」等问题。",
+            "parameters": {
+                "type": "object",
+                "properties": {"symbol": {"type": "string", "description": "6 位代码，如 600519"}},
+                "required": ["symbol"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_watchlist",
+            "description": "把某只标的加入自选（用户表达「关注/盯一下/加自选」时调用）。成功后用户可在行情页自选 Tab 看到。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "6 位代码"},
+                    "name": {"type": "string", "description": "标的名称（可省略，自动获取）"},
+                    "kind": {"type": "string", "description": "股票/基金/指数"},
+                },
+                "required": ["symbol"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_from_watchlist",
+            "description": "把某只标的自自选移除（用户表达「不看了/移除自选」时调用）。",
+            "parameters": {
+                "type": "object",
+                "properties": {"symbol": {"type": "string", "description": "6 位代码"}},
+                "required": ["symbol"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_watchlist",
+            "description": "查询用户自选列表及其实时行情。适合「我的自选现在怎么样」「自选里谁涨了」。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_position",
+            "description": "记录一笔买入持仓（用户表达「买了/买入/建仓/补仓」并给出代码或名称与数量成本时调用）。成功后总览与持仓页自动更新。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "6 位代码"},
+                    "name": {"type": "string", "description": "名称（可省略，自动获取）"},
+                    "kind": {"type": "string", "description": "股票/基金/ETF"},
+                    "shares": {"type": "number", "description": "份额/股数"},
+                    "cost": {"type": "number", "description": "成本价（买入价）"},
+                    "last": {"type": "number", "description": "现价（可省略，自动获取）"},
+                    "buy_date": {"type": "string", "description": "买入日期 YYYY-MM-DD，可省略默认今天"},
+                },
+                "required": ["symbol", "shares", "cost"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 TOOL_IMPL: dict[str, Any] = {
@@ -394,6 +621,12 @@ TOOL_IMPL: dict[str, Any] = {
     "get_user_memory": tool_get_user_memory,
     "save_user_memory": tool_save_user_memory,
     "get_health_check": tool_get_health_check,
+    "search_symbol": tool_search_symbol,
+    "get_quote": tool_get_quote,
+    "add_to_watchlist": tool_add_watchlist,
+    "remove_from_watchlist": tool_remove_watchlist,
+    "get_watchlist": tool_get_watchlist,
+    "record_position": tool_record_position,
 }
 
 # 工具返回体量上限：超过即截断（防止把整库明细喂给模型）

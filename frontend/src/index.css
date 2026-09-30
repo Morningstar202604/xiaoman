@@ -26,8 +26,9 @@
   --color-ring: hsl(var(--ring));
   --color-brand: hsl(var(--brand));
   --color-brand-gold: hsl(var(--brand-gold));
-  --color-up: #d97706;
-  --color-down: #059669;
+  --color-up: #dc2626;   /* 涨/盈 = 红（中国市场惯例） */
+  --color-down: #059669; /* 跌/亏 = 绿 */
+  --color-success: #059669; /* 状态语义（达标/完成/健康），与涨跌色分离 */
   --color-danger: #dc2626;
 
   --radius-lg: var(--radius);

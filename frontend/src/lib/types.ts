@@ -78,6 +78,14 @@ export interface HealthReport {
   flags: string[];
 }
 
+export interface IndexQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number | null;
+  change_pct: number | null;
+}
+
 export interface DashboardData {
   positions: Position[];
   goals: Goal[];
@@ -87,6 +95,8 @@ export interface DashboardData {
     total_pnl: number;
     total_pnl_pct: number;
   };
+  today_pnl: { total: number; items: Record<string, number> };
+  indices: IndexQuote[];
   concentration: {
     threshold_pct: number;
     by_asset: { name: string; kind: string; pct: number }[];

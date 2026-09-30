@@ -77,6 +77,8 @@ async def generate_report() -> dict[str, Any]:
             route=result.get("route", ""),
             llm=result.get("llm", ""),
             route_reason=result.get("route_reason", ""),
+            # 系统归档不进会话列表：晨报历史按 thread_id='cron' 从 runs 读取
+            skip_session=True,
         )
         _state["generated"] += 1
         _state["last_run_at"] = datetime.now().astimezone().isoformat(timespec="seconds")

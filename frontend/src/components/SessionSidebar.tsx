@@ -1,38 +1,26 @@
 /** 桌面侧边栏：品牌 + 导航 + 会话列表 + 设置入口（符合人的使用逻辑：先有导航，再有历史会话）。 */
 
 import { useState } from "react";
-import {
-  LayoutDashboard, MessageSquare, NotebookPen, Plus, Search, Settings,
-  Trash2, Pencil, MessageCircle,
-} from "lucide-react";
+import { Plus, Search, Settings, Sunrise, Trash2, Pencil, MessageCircle } from "lucide-react";
 import { BrandLogo, BRAND } from "@/lib/brand";
 import { store } from "@/lib/store";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { MorningReportDialog } from "@/components/MorningReportDialog";
 import type { SessionItem } from "@/lib/types";
 
-type SidebarTab = "dashboard" | "chat" | "ledger" | "settings";
-
-const NAV: { id: SidebarTab; labelKey: string; icon: typeof LayoutDashboard }[] = [
-  { id: "chat", labelKey: "sidebar.chat", icon: MessageSquare },
-  { id: "ledger", labelKey: "sidebar.ledger", icon: NotebookPen },
-  { id: "dashboard", labelKey: "sidebar.dashboard", icon: LayoutDashboard },
-];
-
+/** 问AI 页的会话侧栏：品牌 + 会话历史（主导航已上移 TopBar） */
 export function SessionSidebar({
-  tab,
   activeThread,
-  onNavigate,
+  onHome,
   onSelect,
   onNew,
   onDelete,
   onRename,
   onOpenSettings,
 }: {
-  tab: SidebarTab;
   activeThread: string | null;
-  /** 切换页面（chat 时由内部决定落到最近会话） */
-  onNavigate: (t: SidebarTab) => void;
+  onHome: () => void;
   onSelect: (threadId: string | null) => void;
   onNew: () => void;
   onDelete: (id: number, threadId: string) => void;
@@ -44,23 +32,19 @@ export function SessionSidebar({
   const [editing, setEditing] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [q, setQ] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
 
   // 本地过滤：会话量小，无需后端接口
   const kw = q.trim().toLowerCase();
   const filtered = kw ? sessions.filter((s) => s.title.toLowerCase().includes(kw)) : sessions;
 
-  const go = (id: SidebarTab) => {
-    onNavigate(id);
-    if (id === "chat") onSelect(sessions[0]?.thread_id ?? null);
-  };
-
   return (
     <div className="flex h-full flex-col">
-      {/* 品牌：点击回问答首页（chat-first）*/}
+      {/* 品牌：点击回总览首页 */}
       <button
         type="button"
         className="flex items-center gap-2.5 px-4 py-3.5 text-left"
-        onClick={() => go("chat")}
+        onClick={onHome}
       >
         <BrandLogo size={30} />
         <span>
@@ -69,42 +53,30 @@ export function SessionSidebar({
         </span>
       </button>
 
-      {/* 主导航 */}
-      <nav className="px-2 space-y-0.5">
-        {NAV.map((n) => (
-          <button
-            key={n.id}
-            type="button"
-            aria-current={tab === n.id ? "page" : undefined}
-            className={cn(
-              "w-full flex items-center gap-2 rounded-[calc(var(--radius)-2px)] px-3 py-2 text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === n.id
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-            onClick={() => go(n.id)}
-          >
-            <n.icon className="w-4 h-4" />
-            {t(n.labelKey)}
-          </button>
-        ))}
-      </nav>
-
       {/* 会话区 */}
       <div className="mt-4 flex-1 min-h-0 flex flex-col">
         <div className="flex items-center justify-between px-4 mb-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {t("sidebar.sessions")}
           </span>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-primary p-1"
-            aria-label={t("sidebar.newSession")}
-            onClick={onNew}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+          <span className="flex items-center gap-0.5">
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-primary p-1"
+              aria-label={t("report.generate")}
+              onClick={() => setReportOpen(true)}
+            >
+              <Sunrise className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-primary p-1"
+              aria-label={t("sidebar.newSession")}
+              onClick={onNew}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </span>
         </div>
         {/* 会话多了之后提供搜索（主流 agent 标配） */}
         {sessions.length > 3 && (
@@ -211,6 +183,9 @@ export function SessionSidebar({
           {sessions.length} {t("sidebar.sessionCount")} · {t("sidebar.localData")}
         </div>
       </div>
+
+      {/* 今日晨报：手动触发一次（AI 生成 / 规则降级） */}
+      <MorningReportDialog open={reportOpen} onOpenChange={setReportOpen} />
     </div>
   );
 }

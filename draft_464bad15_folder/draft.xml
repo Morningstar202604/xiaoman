@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document>
+<title>小满改造拆解报告：砍 / 去 / 优 / 调 行动清单</title>
+
+<callout background-color="light-gray" border-color="gray">
+<p><b>核心判断</b>：小满改造主干是健康的——179 项测试全绿、前端类型检查与构建通过、一句话工作流已贯通（搜 → 看 → 加自选 → 记录买入 → 页面可见），不需要推倒重来。</p>
+<ol>
+<li>真正的账在「没同步的旧东西」：拆解出的 20 项里，9 项是改造后未清理的残留与文档失真（删除即可，无行为风险）。</li>
+<li>优化集中在 3 处数据冗余：前端双请求 /api/budgets、agent 图两节点重复取持仓行情、行情层 5 个分散缓存；合并后行为不变。</li>
+<li>调整围绕本地定位：导出默认加密、快照价标注离线估值，为「以后自己加服务器」铺路，不阻塞当前本地使用。</li>
+</ol>
+</callout>
+
+<h1 seq="auto">一图看懂</h1>
+<p>先给全量拆解地图：20 项按「砍 / 去 / 优 / 调」分四类，并按 P0 立即、P1 本周、P2 后续标注优先级。</p>
+<html5-block path="@./draft_464bad15_folder/w1-overview.html"/>
+
+<h1 seq="auto">该砍掉的：旧功能残留与重复入口</h1>
+<p><b>主判断：5 项砍除里 4 项属于改造后未清理的旧残留，删除零风险。</b>5 页签导航上线后，记账页仍内嵌持仓管理，与独立持仓页功能完全重复；另有一批与产品无关的脚本、过时截图和死 i18n 文案残留在仓库里。</p>
+<table>
+<colgroup><col width="120"/><col width="300"/><col width="400"/></colgroup>
+<thead><tr><th><p>对象</p></th><th><p>证据位置</p></th><th><p>判断依据与动作</p></th></tr></thead>
+<tbody>
+<tr><td><p><b>记账页内嵌持仓 tab</b></p></td><td><p>EntryView.tsx 706–738 行（positions 分支，含 PositionsTable 与逐条删除按钮）</p></td><td><p>与持仓页 HoldingsView 完全重复；删除该 tab，保留负债/订阅/目标 tab（它们是 5 页签导航下唯一的维护入口）。</p></td></tr>
+<tr><td><p><b>scripts/agnes_stress.py</b></p></td><td><p>scripts/agnes_stress.py 全文（压测 apihub.agnes-ai.com 第三方服务）</p></td><td><p>与本产品无关的临时压测脚本，依赖外部 Key；整体移出仓库。</p></td></tr>
+<tr><td><p><b>docs/preview 旧截图</b></p></td><td><p>docs/preview/01–10（改版前 UI）</p></td><td><p>R1–R4 重构后全部过时（无指数条/5 页签/持仓页）；删除，待新 UI 定稿后重截。</p></td></tr>
+<tr><td><p><b>i18n 死 keys 约 30 个</b></p></td><td><p>zh.ts / en.ts：sidebar.chat·ledger·dashboard、chat.toolMarket 等 7 个、chat.sHealth 等 8 个、dash.income·expense·savingsRate、hc.good·warn·bad、entry.kindStock 等</p></td><td><p>静态核对 0 引用（chip* 为动态引用，不在其列）；用脚本核对后成对删除。</p></td></tr>
+<tr><td><p><b>service.py “_legacy” 死注释</b></p></td><td><p>service.py 302 行注释「降级旧顺序流程（_legacy）」</p></td><td><p>旧顺序流程已删除，降级在 agent_graph 图内完成；注释与代码不符，改为描述图内降级。</p></td></tr>
+</tbody>
+</table>
+
+<h1 seq="auto">该去除的：文档与配置失真</h1>
+<p><b>主判断：README 是三处失真的重灾区，会直接误导新接入者。</b>改造把测试数从 167 提到 179、首页从 chat-first 改成 overview-first，README 却仍按旧版描述；另有 Dockerfile 旧镜像名和一组通用模板文件未同步。</p>
+<table>
+<colgroup><col width="140"/><col width="320"/><col width="360"/></colgroup>
+<thead><tr><th><p>对象</p></th><th><p>失真内容</p></th><th><p>动作</p></th></tr></thead>
+<tbody>
+<tr><td><p><b>README 测试与 UI 断言</b></p></td><td><p>第 171/213 行仍写「ui-checks.mjs 78 项」——frontend/tests 目录实际不存在；第 210 行 pytest 计数仍为 167（实际 179）</p></td><td><p>删除或标注 ui-checks 为待补；pytest 计数改为 179；描述与现状对齐。</p></td></tr>
+<tr><td><p><b>README 首页定位描述</b></p></td><td><p>仍宣传 chat-first 首屏；改造后默认页是总览</p></td><td><p>更新为 5 页签导航 + overview 默认的描述。</p></td></tr>
+<tr><td><p><b>Dockerfile 旧名</b></p></td><td><p>注释与镜像名仍为 wealth-office（项目已更名 xiaoman）</p></td><td><p>同步注释与镜像名；docker-compose 已正确，无需改。</p></td></tr>
+<tr><td><p><b>通用模板文件</b></p></td><td><p>CODE_OF_CONDUCT.md / CONTRIBUTING.md / SECURITY.md 为 GitHub 通用模板</p></td><td><p>低优先：保留无害；若追求精简可删除或替换为项目实际说明。</p></td></tr>
+</tbody>
+</table>
+
+<h1 seq="auto">该优化的：请求与取数冗余</h1>
+<p><b>主判断：3 处冗余都在同一批数据被取两次，合并不改任何行为。</b>前端的预算双请求、agent 图的两个收集节点重复查持仓与行情、行情层 5 个分散缓存——都属于「同一路径取两遍」，是典型的合并机会。</p>
+<html5-block path="@./draft_464bad15_folder/w2-redundancy.html"/>
+<p><b>改后影响：</b>第 1 处省一次 HTTP 往返与一次 SQLite 读；第 2 处省一次持仓+行情网络拉取（行情走缓存时收益有限，但结构更干净）；第 3 处只收管理面。三者完成后 pytest 应保持 179 全绿。</p>
+<table>
+<colgroup><col width="120"/><col width="300"/><col width="400"/></colgroup>
+<thead><tr><th><p>对象</p></th><th><p>证据位置</p></th><th><p>优化方案</p></th></tr></thead>
+<tbody>
+<tr><td><p><b>预算双请求</b></p></td><td><p>Dashboard.tsx 523 行 + 410 行各调一次 /api/budgets</p></td><td><p>budget state 提升到 Dashboard，BudgetCard 改收 props；或 BudgetCard 复用主组件数据。</p></td></tr>
+<tr><td><p><b>agent 图双取数</b></p></td><td><p>agent_graph.py collect_market（130–131）与 collect_ledger（148–149）各执行 list_positions + live_quotes</p></td><td><p>market 结果写入 state，ledger 节点直接复用，不再重复查询。</p></td></tr>
+<tr><td><p><b>测试缓存污染</b></p></td><td><p>tests/test_quotes.py 共享 30s 行情缓存，600519 被先行用例占用</p></td><td><p>用例换 symbol（如 000858）或每用例独立缓存。</p></td></tr>
+<tr><td><p><b>quotes 缓存分散</b></p></td><td><p>quotes.py 5 个模块级 dict：_cache / _kline_cache / _indices_cache / _today_pnl_cache / _quote_cache；invalidate 手动清 5 处（230–235）</p></td><td><p>统一缓存注册表或装饰器，行为不变，只收口失效逻辑。</p></td></tr>
+<tr><td><p><b>README 篇幅</b></p></td><td><p>README.md 239 行，含大量旧结构与命令</p></td><td><p>配合定位重写：本地运行 × 云端 API，命令精简到能跑通。</p></td></tr>
+<tr><td><p><b>晨报归档混入对话历史</b></p></td><td><p>scheduler.py save_run(thread_id="cron")，与用户对话同在 runs 表</p></td><td><p>独立 thread_id 前缀或单独归档，避免晨报污染会话上下文。</p></td></tr>
+</tbody>
+</table>
+
+<h1 seq="auto">该调整的：本地定位下的安全与体验</h1>
+<p><b>主判断：5 项调整均不改变现有功能，但决定「以后加服务器」时是否安全。</b>本地单机定位下，明文导出与快照价都可接受；一旦部署到服务器，前者是风险，后者会误导判断——现在就把口径标清楚，是最低成本的安全垫。</p>
+<table>
+<colgroup><col width="120"/><col width="300"/><col width="400"/></colgroup>
+<thead><tr><th><p>对象</p></th><th><p>现状</p></th><th><p>调整建议</p></th></tr></thead>
+<tbody>
+<tr><td><p><b>导出加密默认</b></p></td><td><p>/api/export 无口令时明文导出（R4 已支持口令加密，但默认明文）</p></td><td><p>本地可接受；部署服务器前改为默认加密或强提示，口令不落盘的设计保留。</p></td></tr>
+<tr><td><p><b>快照价口径</b></p></td><td><p>行情三源（东财→新浪→快照）全失败时用 last 价当现价，界面未标注</p></td><td><p>快照价显式标注「离线估值，非实时行情」，与真实行情区分。</p></td></tr>
+<tr><td><p><b>记账页 tab 命名</b></p></td><td><p>负债/订阅/目标三个 tab 语义是「管理」而非「记账」</p></td><td><p>保留功能，tab 文案与分组对齐新信息架构（可随 P1 改名）。</p></td></tr>
+<tr><td><p><b>agent 双文件分工</b></p></td><td><p>agent.py（工具循环）+ agent_graph.py（LangGraph 编排），观感像双实现</p></td><td><p>结构正确（agent 被 finalize 调用）；补模块头注释说明分工，避免后人误判重复。</p></td></tr>
+<tr><td><p><b>快捷入口合并</b></p></td><td><p>输入区常驻 chips（R4 新增）与空会话 suggestions 并存</p></td><td><p>保留 chips 为唯一快捷入口，suggestions 默认关闭（设置里保留开关）。</p></td></tr>
+</tbody>
+</table>
+
+<h1 seq="auto">结论与行动建议</h1>
+<p><b>结论：20 项拆解按「先清残留、再合冗余、后调安全」三批推进，全程不破坏已通过的 179 项测试与工作流贯通成果。</b>P0 的 6 项全部是删除与文案修正，今天可完成；P1 的 8 项合并冗余后行为不变，完成时以 pytest 179 全绿 + 前端构建通过为验收；P2 的 6 项与「以后加服务器」绑定，建议在你确定服务器方案时一并排期。</p>
+<html5-block path="@./draft_464bad15_folder/w3-timeline.html"/>
+<p><b>边界说明：</b>本报告为代码审计结论，证据来自 xiaoman 工作区未提交改动（后端 8,504 行 / 前端 7,134 行，179 项测试）；「i18n 死 keys 约 30 个」为静态引用核对结果，动态引用（如 tr(sk)）不在其列；东财系行情、CSV 导入、语音等沙箱外功能需在你本机验收，本报告不涉及。云备份已按你的指示转为本地加密备份，服务器方案未定，P2 相关项以你排期为准。</p>
+
+<h2>参考来源</h2>
+<p>本报告全部判断基于仓库代码与测试实证，主要证据位置已随各清单列出。</p>
+<p><a href="https://gitcode.com/badhope/xiaoman.git">[1] badhope/xiaoman 仓库（gitcode），克隆与改造基线 HEAD 85b832f</a></p>
+<p><a href="https://my.feishu.cn/file/C1HhbIS1QoaCECxMeOkc0z1K6ef">[2] 小满-仓库文件说明（首次拆解交付）</a></p>
+<p><a href="https://my.feishu.cn/file/JjQCbd1ixoybtixFTuvcmsJV69g">[3] 小满v2改造蓝图（定位：本地运行 × 云端能力）</a></p>
+<p><a href="https://my.feishu.cn/file/FLJ8bJyZuo4xTsxcrwqcd9ON6Be">[4] 小满前端重构方案（5 页签投资者心智）</a></p>
+</document>

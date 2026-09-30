@@ -1,8 +1,8 @@
 # 随身理财 · 单容器部署（前端构建产物 + 后端 FastAPI，同端口 8787）
 # 多阶段构建：node 出前端 → python 出 venv → 精简运行时合并
 #
-# 构建：docker build -t wealth-office .
-# 运行：docker run -p 8787:8787 -v wo-data:/app/backend/data wealth-office
+# 构建：docker build -t xiaoman .
+# 运行：docker run -p 8787:8787 -v xiaoman-data:/app/backend/data xiaoman
 #       或直接 docker compose up -d --build（见 docker-compose.yml）
 
 # ---------- 阶段 1：前端构建 ----------

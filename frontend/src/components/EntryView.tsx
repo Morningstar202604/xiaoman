@@ -8,7 +8,6 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { store as appStore } from "@/lib/store";
 import { fmtMoney } from "@/lib/format";
-import { PositionsTable } from "@/components/PositionsTable";
 import { GoalsPanel, GoalsList } from "@/components/GoalsPanel";
 
 const KIND_OPTIONS = ["股票", "ETF", "基金", "现金", "其他"] as const;
@@ -515,7 +514,7 @@ function SubscriptionForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-type ListTab = "transactions" | "positions" | "debts" | "subscriptions" | "goals";
+type ListTab = "transactions" | "debts" | "subscriptions" | "goals";
 type Panel = "expense" | "income" | "import" | "position" | "debt" | "subscription" | "goal" | null;
 
 export function EntryView() {
@@ -537,7 +536,6 @@ export function EntryView() {
 
   const tabs: { id: ListTab; label: string; count?: number }[] = [
     { id: "transactions", label: tt("entry.tabTransactions"), count: dashboard?.transactions.length },
-    { id: "positions", label: tt("entry.tabPositions"), count: dashboard?.positions.length },
     { id: "debts", label: tt("entry.tabDebts"), count: dashboard?.debts.items.length },
     { id: "subscriptions", label: tt("entry.tabSubscriptions"), count: dashboard?.subscriptions.items.length },
     { id: "goals", label: tt("entry.tabGoals"), count: dashboard?.goals.length },
@@ -607,7 +605,7 @@ export function EntryView() {
         </Section>
       )}
 
-      {/* 列表管理：流水 / 持仓 / 负债 / 订阅 */}
+      {/* 列表管理：流水 + 负债/订阅/目标（5 页签下唯一的账户管理入口；持仓管理在持仓页） */}
       <Section
         title={tt("entry.myLedger")}
         badge={
@@ -644,28 +642,48 @@ export function EntryView() {
                 />
               </div>
               <div className="max-h-80 overflow-y-auto scroll-thin">
-                {txRows.slice(0, 200).map((t) => (
-                  <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
-                    <span className="min-w-0">
-                      <span className="truncate">{t.item}</span>
-                      <span className="text-muted-foreground text-xs ml-2">{t.date} · {t.category}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className={`tabular-nums ${t.amount > 0 ? "text-up" : "text-down"}`}>
-                        {fmtMoney(t.amount, true)}
-                      </span>
-                      <button
-                        className="text-muted-foreground hover:text-red-600"
-                        onClick={() => {
-                          void api(`/api/transactions/${t.id}`, { method: "DELETE" }).then(() => appStore.bump());
-                        }}
-                        aria-label={tt("entry.deleteItem", { name: t.item })}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  </div>
-                ))}
+                {(() => {
+                  const shown = [...txRows].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 200);
+                  const groups: { date: string; rows: typeof shown }[] = [];
+                  for (const t of shown) {
+                    const last = groups[groups.length - 1];
+                    if (last && last.date === t.date) last.rows.push(t);
+                    else groups.push({ date: t.date, rows: [t] });
+                  }
+                  return groups.map((g) => {
+                    const dayTotal = g.rows.reduce((s, t) => s + t.amount, 0);
+                    return (
+                      <div key={g.date}>
+                        <div className="sticky top-0 flex items-center justify-between border-b border-border/60 bg-card py-1 text-[11px] text-muted-foreground">
+                          <span className="tabular-nums">{g.date}</span>
+                          <span className="tabular-nums">{dayTotal > 0 ? "+" : ""}{fmtMoney(dayTotal, true)}</span>
+                        </div>
+                        {g.rows.map((t) => (
+                          <div key={t.id} className="flex items-center justify-between py-1.5 text-sm">
+                            <span className="min-w-0">
+                              <span className="truncate">{t.item}</span>
+                              <span className="text-muted-foreground text-xs ml-2">{t.category}</span>
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className={`tabular-nums ${t.amount > 0 ? "text-up" : "text-down"}`}>
+                                {fmtMoney(t.amount, true)}
+                              </span>
+                              <button
+                                className="text-muted-foreground hover:text-red-600"
+                                onClick={() => {
+                                  void api(`/api/transactions/${t.id}`, { method: "DELETE" }).then(() => appStore.bump());
+                                }}
+                                aria-label={tt("entry.deleteItem", { name: t.item })}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  });
+                })()}
                 {txRows.length === 0 && (
                   <div className="py-4 text-center text-xs text-muted-foreground">{tt("entry.noMatchTx", { q: txQuery })}</div>
                 )}
@@ -679,39 +697,6 @@ export function EntryView() {
           ) : (
             <div className="py-6 text-center text-sm text-muted-foreground">
               {tt("entry.noTx")}
-            </div>
-          )
-        )}
-
-        {tab === "positions" && (
-          dashboard && dashboard.positions.length > 0 ? (
-            <div className="space-y-3">
-              <PositionsTable rows={dashboard.positions} />
-              <div className="space-y-1.5">
-                {dashboard.positions.map((p) => (
-                  <div key={p.symbol} className="flex items-center justify-between text-sm">
-                    <span>
-                      {p.name} <span className="text-muted-foreground text-xs">{p.symbol}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="tabular-nums text-muted-foreground">{tt("entry.sharesUnit", { n: p.shares })}</span>
-                      <button
-                        className="text-muted-foreground hover:text-red-600"
-                        onClick={() => {
-                          void api(`/api/positions/${p.symbol}`, { method: "DELETE" }).then(() => appStore.bump());
-                        }}
-                        aria-label={tt("entry.deleteItem", { name: p.name })}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              {tt("entry.noPositions")}
             </div>
           )
         )}

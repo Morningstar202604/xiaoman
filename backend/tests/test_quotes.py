@@ -6,6 +6,14 @@ import pytest
 from app import quotes
 
 
+@pytest.fixture(autouse=True)
+async def _clean_quotes_cache():
+    """每个用例后清空行情缓存：quotes 缓存 TTL 30s，跨用例共享会让
+    后跑用例命中先跑用例写入的价（600519 等热门代码），造成断言互扰。"""
+    yield
+    await quotes.invalidate_quotes_cache()
+
+
 @pytest.mark.parametrize(
     ("symbol", "secid"),
     [
@@ -59,13 +67,14 @@ async def test_live_quotes_snapshot_mode(monkeypatch) -> None:
 
 
 async def test_live_quotes_falls_back_to_snapshot(monkeypatch) -> None:
-    """auto 模式东财失败 → 降级快照价，且来源标注为快照。"""
+    """auto 模式东财与新浪都失败 → 降级快照价，且来源标注为快照。"""
     async def _settings():
         return {"quote_source_mode": "auto"}
     monkeypatch.setattr(quotes.db, "get_settings", _settings)
     async def _fail(_symbols):
         return {}
     monkeypatch.setattr(quotes, "_eastmoney_quotes", _fail)
+    monkeypatch.setattr(quotes, "_sina_quotes", _fail)
     positions = [
         {"symbol": "600519", "kind": "股票", "last": 1521.0},
         {"symbol": "CASH", "kind": "现金", "last": 55000.0},
@@ -73,6 +82,26 @@ async def test_live_quotes_falls_back_to_snapshot(monkeypatch) -> None:
     out = await quotes.live_quotes(positions)
     assert out == {"600519": 1521.0, "CASH": 55000.0}
     assert quotes.last_source() == "snapshot"
+
+
+async def test_live_quotes_falls_back_to_sina(monkeypatch) -> None:
+    """auto 模式东财失败、新浪成功 → 用新浪实时价，来源标注为 sina。"""
+    async def _settings():
+        return {"quote_source_mode": "auto"}
+    monkeypatch.setattr(quotes.db, "get_settings", _settings)
+    async def _fail(_symbols):
+        return {}
+    async def _sina_ok(_symbols):
+        return {"000858": 1530.0}
+    monkeypatch.setattr(quotes, "_eastmoney_quotes", _fail)
+    monkeypatch.setattr(quotes, "_sina_quotes", _sina_ok)
+    positions = [
+        {"symbol": "000858", "kind": "股票", "last": 1521.0},
+        {"symbol": "CASH", "kind": "现金", "last": 55000.0},
+    ]
+    out = await quotes.live_quotes(positions)
+    assert out["000858"] == 1530.0
+    assert quotes.last_source() == "sina"
 
 
 async def test_live_quotes_eastmoney_marks_source(monkeypatch) -> None:
@@ -90,6 +119,43 @@ async def test_live_quotes_eastmoney_marks_source(monkeypatch) -> None:
     out = await quotes.live_quotes(positions)
     assert out["000001"] == 11.5
     assert quotes.last_source() == "eastmoney"
+
+
+async def test_quote_now_sina_zero_price_falls_back_to_prev(monkeypatch) -> None:
+    """盘前/非交易时段新浪现价为 0.000（被 _parse_price 判无效）→
+    用昨收兜底显示（涨跌 0），避免「无法获取行情」假失败。"""
+    raw = 'var hq_str_sh600519="贵州茅台,0.000,1235.580,0.000,0.000,0.000,0.000,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,0,0.000,2026-09-30,09:07:26,00,"'
+
+    class _FakeResp:
+        status_code = 200
+        content = raw.encode("gbk")
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def __init__(self, *_a, **_k) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a) -> None:
+            return None
+
+        async def get(self, _url, headers=None):
+            return _FakeResp()
+
+    monkeypatch.setattr(quotes, "_to_secid", lambda _s: None)  # 跳过东财分支
+    monkeypatch.setattr(quotes, "_to_sina", lambda _s: "sh600519")
+    monkeypatch.setattr(quotes.httpx, "AsyncClient", _FakeClient)
+
+    out = await quotes.quote_now("600519")
+    assert out is not None
+    assert out["price"] == 1235.58
+    assert out["change"] == 0.0
+    assert out["change_pct"] == 0.0
+    assert out["source"] == "sina"
 
 
 # ---------------------------------------------------------------------------

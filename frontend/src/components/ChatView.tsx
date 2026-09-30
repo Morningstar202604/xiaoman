@@ -597,6 +597,25 @@ export function ChatView({
             </Button>
           </div>
         )}
+        {/* 快捷指令：一条龙工作流的入口（搜→看→自选→分析，一句话直达） */}
+        <div className="mb-2 flex gap-1.5 overflow-x-auto scroll-thin pb-0.5">
+          {[
+            "chat.chipAnalyze",
+            "chat.chipWatch",
+            "chat.chipMyWatch",
+            "chat.chipLedger",
+          ].map((sk) => (
+            <button
+              key={sk}
+              type="button"
+              disabled={busy}
+              onClick={() => void send(tr(sk))}
+              className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50"
+            >
+              {tr(sk)}
+            </button>
+          ))}
+        </div>
         <div className="flex items-end gap-2">
           {voiceOn && (
             <Button

@@ -30,7 +30,7 @@ export function HealthCheckDialog({ open, onOpenChange }: { open: boolean; onOpe
     };
   }, [open]);
 
-  const scoreColor = report && (report.score >= 80 ? "text-down" : report.score >= 60 ? "text-amber-500" : "text-red-500");
+  const scoreColor = report && (report.score >= 80 ? "text-success" : report.score >= 60 ? "text-amber-500" : "text-red-500");
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -84,6 +84,7 @@ export function HealthCheckDialog({ open, onOpenChange }: { open: boolean; onOpe
                   </div>
                 )}
               </div>
+              <p className="text-[11px] text-muted-foreground">{t("notAdvice")}</p>
             </div>
           )}
         </Dialog.Content>

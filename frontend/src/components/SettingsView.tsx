@@ -23,6 +23,14 @@ const inputCls =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 const labelCls = "block text-xs text-muted-foreground mb-1";
 
+/** 国产供应商预设（与后端 app/llm.py PROVIDERS 一致）：快捷选择自动填入 base/model */
+const PRESET_PROVIDERS = {
+  deepseek: { base: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  doubao: { base: "https://ark.cn-beijing.volces.com/api/v3", model: "" },
+  qwen: { base: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
+} as const;
+type ProviderKey = keyof typeof PRESET_PROVIDERS | "custom";
+
 type SectionId = "prefs" | "rules" | "budget" | "ai" | "report" | "data" | "memory" | "token";
 
 const SECTIONS: { id: SectionId; labelKey: string; icon: typeof Wallet }[] = [
@@ -205,6 +213,7 @@ export function SettingsView() {
   const [active, setActive] = useState<SectionId>("prefs");
   const [resetOpen, setResetOpen] = useState(false);
   const [tokenInput, setTokenInput] = useState(getToken());
+  const [providerSel, setProviderSel] = useState<ProviderKey>("custom");
   const [reports, setReports] = useState<RunRecord[]>([]);
   const [budgetTotal, setBudgetTotal] = useState("");
   const [budgetCats, setBudgetCats] = useState("");
@@ -350,29 +359,40 @@ export function SettingsView() {
     }
   };
 
+  const [pendingImport, setPendingImport] = useState<File | null>(null);
+  const [backupPass, setBackupPass] = useState("");
+
   const exportBackup = async () => {
     try {
-      const data = await api<Record<string, unknown>>("/api/export");
+      const pass = backupPass.trim();
+      if (!pass && !window.confirm(t("settings.exportPlainWarn"))) {
+        return;
+      }
+      const data = await api<Record<string, unknown>>(pass ? `/api/export?passphrase=${encodeURIComponent(pass)}` : "/api/export");
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${BRAND.name}-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `${BRAND.name}-backup-${new Date().toISOString().slice(0, 10)}${pass ? "-encrypted" : ""}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      toast(t("settings.backupDownloaded"), "ok");
+      toast(pass ? t("settings.backupEncrypted") : t("settings.backupDownloaded"), "ok");
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), "error");
     }
   };
 
-  const [pendingImport, setPendingImport] = useState<File | null>(null);
-
   const importBackup = async (file: File) => {
     try {
       const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
+      const encrypted = (parsed as { encrypted?: boolean }).encrypted === true;
+      if (encrypted && !backupPass.trim()) {
+        toast(t("settings.backupNeedPass"), "error");
+        return;
+      }
+      const body = encrypted ? { ...parsed, passphrase: backupPass.trim() } : parsed;
       const r = await api<{ counts: Record<string, number> }>("/api/import/backup", {
         method: "POST",
-        body: JSON.stringify(parsed),
+        body: JSON.stringify(body),
       });
       const c = r.counts;
       const parts = [
@@ -539,6 +559,25 @@ export function SettingsView() {
           <Row label={t("settings.aiEnable")} hint={t("settings.aiEnableHint")}>
             <Switch checked={form.ai_enabled === "on"} onChange={() => toggle("ai_enabled")} label={t("settings.aiEnable")} />
           </Row>
+          <Row label={t("settings.aiProvider")} hint={t("settings.aiProviderHint")}>
+            <Segmented
+              value={providerSel}
+              onChange={(v) => {
+                setProviderSel(v);
+                if (v !== "custom") {
+                  const p = PRESET_PROVIDERS[v];
+                  set("ai_base_url", p.base);
+                  set("ai_model", p.model);
+                }
+              }}
+              options={[
+                { value: "deepseek", label: "DeepSeek" },
+                { value: "doubao", label: "豆包" },
+                { value: "qwen", label: "通义" },
+                { value: "custom", label: t("settings.aiCustom") },
+              ]}
+            />
+          </Row>
           <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
             {t("settings.aiPrivacy")}
           </div>
@@ -548,7 +587,7 @@ export function SettingsView() {
               className={inputCls}
               value={form.ai_base_url ?? ""}
               onChange={(e) => set("ai_base_url", e.target.value)}
-              placeholder="https://apihub.agnes-ai.com/v1"
+              placeholder="https://api.deepseek.com/v1"
             />
           </div>
           <div>
@@ -635,6 +674,7 @@ export function SettingsView() {
             </div>
           )}
         </details>
+        <div className="mt-2 text-[11px] text-muted-foreground">{t("notAdvice")}</div>
       </Section>)}
 
       {/* 数据 */}
@@ -659,6 +699,18 @@ export function SettingsView() {
             <Button variant="outline" size="sm" onClick={() => setResetOpen(true)}>
               {t("settings.restoreDemo")}
             </Button>
+          </div>
+          <div className="space-y-1.5">
+            <input
+              type="password"
+              value={backupPass}
+              onChange={(e) => setBackupPass(e.target.value)}
+              placeholder={t("settings.backupPassPh")}
+              aria-label={t("settings.backupPassPh")}
+              className="w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              maxLength={64}
+            />
+            <p className="text-[11px] text-muted-foreground/70">{t("settings.backupPassHint")}</p>
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">{t("settings.exportHint")}</div>

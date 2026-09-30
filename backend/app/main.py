@@ -18,12 +18,13 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analysis, db, llm, quotes, scheduler, service
+from . import analysis, backup, db, llm, quotes, scheduler, service
 from .quotes import invalidate_quotes_cache
 
 log = logging.getLogger(__name__)
@@ -812,16 +813,33 @@ async def delete_session(session_id: int) -> dict:
 
 
 @app.get("/api/export")
-async def export_data() -> dict:
-    return await db.export_data()
+async def export_data(passphrase: str | None = None) -> dict:
+    """全量导出：无口令 → 明文 JSON（兼容旧版）；有口令 → 加密备份包（推荐）。"""
+    data = await db.export_data()
+    if passphrase:
+        return backup.encrypt_export(data, passphrase)
+    return data
 
 
 @app.post("/api/import/backup")
 async def import_backup(payload: dict) -> dict:
-    """从 /api/export 的 JSON 恢复全量数据（AI Key 除外，需重新填写）。"""
-    data = payload or {}
-    if not isinstance(data, dict):
+    """从 /api/export 的 JSON 恢复全量数据（AI Key 除外，需重新填写）。
+
+    加密备份包（encrypted=true）必须携带 passphrase 字段，口令错误会拒绝并回滚。
+    """
+    payload = payload or {}
+    if not isinstance(payload, dict):
         return JSONResponse({"error": "备份格式不正确"}, status_code=400)
+    if payload.get("encrypted"):
+        passphrase = str(payload.get("passphrase") or "")
+        if not passphrase:
+            return JSONResponse({"error": "加密备份需要口令"}, status_code=400)
+        try:
+            data = backup.decrypt_export(payload, passphrase)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+    else:
+        data = payload
     version = str((data.get("meta") or {}).get("version") or data.get("version") or "")
     if not (version.startswith(("wealth-office-v", "xiaoman-v")) or version == "2"):
         return JSONResponse({"error": f"备份格式不被识别（version={version or '空'}）"}, status_code=400)
@@ -869,6 +887,86 @@ async def kline(symbol: str, period: str = "daily", limit: int = 120) -> dict:
 @app.get("/api/trend")
 async def trend(months: int = 6) -> dict:
     return {"months": await db.monthly_trend(max(1, min(months, 24)))}
+
+
+# ---------------------------------------------------------------------------
+# 自选行情（watchlist）：炒股/买基用户的核心页——自己盯的标的，与持仓解耦。
+# 报价走 quote_now()（东财 → 新浪备源），搜索仅东财 suggest。
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/watchlist")
+async def watchlist_list() -> dict:
+    items = await db.list_watchlist()
+    if not items:
+        return {"items": []}
+    qs = await asyncio.gather(*(quotes.quote_now(i["symbol"]) for i in items))
+    enriched = []
+    for item, q in zip(items, qs, strict=False):
+        row = dict(item)
+        if q:
+            row.update(
+                price=q["price"],
+                change=q["change"],
+                change_pct=q["change_pct"],
+                quote_source=q["source"],
+            )
+        enriched.append(row)
+    return {"items": enriched}
+
+
+@app.post("/api/watchlist")
+async def watchlist_add(payload: dict) -> dict:
+    return await db.add_watchlist(
+        str(payload.get("symbol", "")),
+        str(payload.get("name", "")),
+        str(payload.get("kind", "股票")),
+    )
+
+
+@app.delete("/api/watchlist/{symbol}")
+async def watchlist_remove(symbol: str) -> dict:
+    return await db.delete_watchlist(symbol)
+
+
+@app.get("/api/quote")
+async def quote(symbol: str) -> dict:
+    q = await quotes.quote_now(symbol)
+    if q is None:
+        return JSONResponse({"ok": False, "error": "无法获取行情"}, status_code=404)
+    return q
+
+
+@app.get("/api/search")
+async def search(q: str, limit: int = 8) -> dict:
+    """东财 suggest：搜股票/基金/指数（仅东财源；失败返回空列表）。"""
+    kw = q.strip()
+    if not kw or len(kw) > 20:
+        return {"items": []}
+    params = {"input": kw, "type": "14", "token": "D43BF722C8E33BDC906FB84D85E326E8"}
+    headers = {"User-Agent": "Mozilla/5.0 (xiaoman)", "Referer": "https://quote.eastmoney.com/"}
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(
+                "https://searchapi.eastmoney.com/api/suggest/get",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data") or {}
+        rows = ((data.get("QuotationCodeTable") or {}).get("Data") or [])
+    except Exception:  # noqa: BLE001 — 搜索失败返回空，前端提示网络不可用
+        return {"items": []}
+    out = []
+    for r in rows[: max(1, min(limit, 20))]:
+        code = str(r.get("Code") or "").strip()
+        name = str(r.get("Name") or "").strip()
+        if not code or not name:
+            continue
+        stype = str(r.get("SecurityTypeName") or "")
+        kind = "基金" if "基金" in stype else ("指数" if "指" in stype else "股票")
+        out.append({"symbol": code, "name": name, "kind": kind})
+    return {"items": out}
 
 
 @app.get("/api/reports")
