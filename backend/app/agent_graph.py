@@ -31,7 +31,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from . import agent, analysis, db, llm, nlparse, service
+from . import agent, analysis, db, llm, nlparse, service, tools
 from .quotes import live_quotes
 
 log = logging.getLogger(__name__)
@@ -81,6 +81,11 @@ async def supervisor(state: AgentState) -> dict[str, Any]:
     if route == "general" and await service._is_finance_followup(q, tid):
         route, reason = "both", "承接上一轮财务提问的省略追问"
 
+    # 动作指令优先（卖出/清仓/晨报/备份）：先于记账检测，否则「卖出 600519」
+    # 这类带数字的动作会被 nlparse 当成一笔支出记进账本（语义劫持）。
+    if route == "action":
+        return {"route": "action", "reason": reason, "mode": "deterministic"}
+
     # 一句话记账优先：短句 + 能解析出金额 → 记账 agent（规则秒回，不调模型）
     parsed = None
     if service._looks_like_record(q):
@@ -114,6 +119,13 @@ async def record(state: AgentState) -> dict[str, Any]:
     assert parsed is not None
     result = await service._try_nl_add(state["question"], state["reason"], _emit, state.get("lang", "zh"))
     assert result is not None
+    result.setdefault("actions", [{"tab": "ledger"}])
+    return {"result": result}
+
+
+async def action(state: AgentState) -> dict[str, Any]:
+    """动作 agent：不配模型也能直接执行的动作指令（卖出/清仓、晨报、备份）。"""
+    result = await tools.run_action(state["question"], state.get("lang", "zh"))
     return {"result": result}
 
 
@@ -255,6 +267,10 @@ async def finalize(state: AgentState) -> dict[str, Any]:
                     "llm": "llm",
                     "tools": result.get("tools_used", []),
                     "agent_steps": result.get("steps", []),
+                    "actions": [
+                        {"tab": "holdings"} if "market" in routes else None,
+                        {"tab": "ledger"} if "ledger" in routes else None,
+                    ],
                 }
             }
         except agent.AgentUnavailable:
@@ -329,6 +345,10 @@ async def finalize(state: AgentState) -> dict[str, Any]:
             "flags": flags,
             "llm": src,
             "tools": [],
+            "actions": [
+                {"tab": "holdings"} if "market" in routes else None,
+                {"tab": "ledger"} if "ledger" in routes else None,
+            ],
         }
     }
 
@@ -344,6 +364,8 @@ def _supervisor_route(state: AgentState) -> str:
         return "record"
     if r == "memory":
         return "memory"
+    if r == "action":
+        return "action"
     if r == "general":
         return "general"
     return "finance"
@@ -354,6 +376,7 @@ def _build_graph() -> Any:
     g.add_node("supervisor", supervisor)
     g.add_node("record", record)
     g.add_node("memory", memory)
+    g.add_node("action", action)
     g.add_node("general", general)
     g.add_node("collect_market", collect_market)
     g.add_node("collect_ledger", collect_ledger)
@@ -364,7 +387,7 @@ def _build_graph() -> Any:
     g.add_conditional_edges(
         "supervisor",
         _supervisor_route,
-        {"record": "record", "memory": "memory", "general": "general", "finance": "collect_market"},
+        {"record": "record", "memory": "memory", "general": "general", "action": "action", "finance": "collect_market"},
     )
     # 多智能体管线：市场 agent → 账本 agent → 风控 agent → 成文 agent
     # （顺序边：单连接 aiosqlite 不支持跨节点并发读写，结构并行、执行串行）
@@ -373,6 +396,7 @@ def _build_graph() -> Any:
     g.add_edge("risk", "finalize")
     g.add_edge("record", END)
     g.add_edge("memory", END)
+    g.add_edge("action", END)
     g.add_edge("general", END)
     g.add_edge("finalize", END)
     return g.compile()

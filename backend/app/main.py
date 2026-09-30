@@ -758,6 +758,7 @@ async def ask(payload: dict):
                 llm=result.get("llm", ""),
                 route_reason=result.get("route_reason", ""),
                 tools=result.get("tools") or [],
+                actions=result.get("actions") or [],
             )
         except Exception:  # noqa: BLE001 — 落库失败不打断交付
             log.exception("save_run failed")
@@ -772,6 +773,7 @@ async def ask(payload: dict):
                 "flags": result["flags"],
                 "llm": result["llm"],
                 "tools": result.get("tools") or [],
+                "actions": result.get("actions") or [],
             }
         )
 

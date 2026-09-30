@@ -10,13 +10,17 @@
 from __future__ import annotations
 
 import json
+import secrets
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-from . import analysis, db, nlparse
+from . import analysis, backup, db, nlparse, scheduler
 from .quotes import kline as fetch_kline
-from .quotes import quote_now
+from .quotes import invalidate_quotes_cache, quote_now
+
+BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
 
 # ---------------------------------------------------------------------------
 # 工具执行体（纯函数，可单测）
@@ -337,6 +341,98 @@ async def tool_remove_watchlist(args: dict[str, Any]) -> str:
     return f"已把 {symbol} 移出自选"
 
 
+async def tool_sell_position(args: dict[str, Any]) -> str:
+    """卖出/减仓持仓：给出代码与数量（可省略数量=全部清仓）。"""
+    symbol = str(args.get("symbol") or "").strip().upper()
+    if not symbol:
+        return "需要提供代码，例如 600519"
+    positions = await db.list_positions()
+    cur = next((p for p in positions if p["symbol"] == symbol), None)
+    if cur is None:
+        return f"持仓里没有 {symbol}，无需卖出。当前持仓：{', '.join(p['symbol'] for p in positions) or '（空）'}"
+    try:
+        shares = float(args.get("shares") or 0)
+    except (TypeError, ValueError):
+        shares = 0
+    if shares <= 0 or shares >= cur["shares"]:
+        await db.delete_position(symbol)
+        return f"已清仓卖出 {cur['name']}（{symbol}）：{cur['shares']:g} 份全部平仓，持仓已移除。"
+    new_shares = cur["shares"] - shares
+    await db.add_position(
+        {
+            "symbol": cur["symbol"],
+            "name": cur["name"],
+            "kind": cur["kind"],
+            "industry": cur["industry"],
+            "shares": new_shares,
+            "cost": cur["cost"],
+            "last": cur["last"],
+            "buy_date": cur.get("buy_date"),
+            "fee": cur.get("fee", 0),
+        }
+    )
+    return (
+        f"已卖出 {cur['name']}（{symbol}）{shares:g} 份，剩余 {new_shares:g} 份（成本 {cur['cost']:g} 不变）。"
+        "可在持仓页查看最新盈亏。"
+    )
+
+
+async def tool_trigger_morning_report(_args: dict[str, Any]) -> str:
+    """触发生成今日晨报（组合+账本+目标体检，空库会提示没有数据）。"""
+    try:
+        result = await scheduler.generate_report()
+    except Exception as exc:  # noqa: BLE001 — 手动触发失败要给可读错误
+        return f"晨报生成失败：{type(exc).__name__}: {exc}"
+    if result.get("skipped"):
+        return "还没有足够的数据生成晨报（需要至少一条持仓或流水）。先记一笔账或添加持仓，我再来帮你体检。"
+    return result.get("answer", "晨报已生成。") + "\n（已归档到「问AI」→ 晨报历史）"
+
+
+async def tool_backup_now(_args: dict[str, Any]) -> str:
+    """生成一份本地加密备份包（PBKDF2+Fernet），口令只展示这一次。"""
+    data = await db.export_data()
+    passphrase = secrets.token_urlsafe(9)
+    payload = backup.encrypt_export(data, passphrase)
+    import datetime as _dt
+
+    path = BACKUP_DIR / f"xiaoman-backup-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+    return (
+        f"已生成本地加密备份：{path.name}\n"
+        f"解密口令：{passphrase}（只显示这一次，请妥善保存，口令不落盘、丢失无法找回）\n"
+        "恢复方法：设置 → 数据与状态 → 恢复备份，选择该文件并输入口令。"
+    )
+
+
+async def tool_set_setting(args: dict[str, Any]) -> str:
+    """修改应用设置（涨跌颜色/默认首页/语言/数字格式/快捷建议/晨报时间）。"""
+    key = str(args.get("key") or "").strip()
+    value = args.get("value")
+    if not key or value is None:
+        return "需要提供 key 与 value，例如：改默认首页为持仓页、涨跌颜色改成绿涨红跌"
+    raw = str(value)
+    if key == "color_scheme" and raw not in ("cn", "us"):
+        return "涨跌颜色只能是 cn（红涨绿跌）或 us（绿涨红跌）"
+    if key == "default_tab" and raw not in ("overview", "holdings", "market", "ledger", "chat"):
+        return "默认首页只能是 总览/持仓/行情/记账/问AI"
+    if key == "lang" and raw not in ("zh", "en"):
+        return "语言只能是 zh 或 en"
+    if key in ("compact_numbers", "show_suggestions") and raw not in ("on", "off"):
+        return f"{key} 只能是 on 或 off"
+    if key == "morning_report_time":
+        import re as _re
+
+        if not _re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", raw):
+            return "晨报时间需为 HH:MM（24 小时制）"
+    try:
+        await db.set_setting(key, raw)
+    except Exception as exc:  # noqa: BLE001
+        return f"设置失败：{exc}"
+    await invalidate_quotes_cache()
+    return f"已更新设置：{key} = {raw}（下次启动生效的部分已即时应用）。"
+
+
 async def tool_get_watchlist(_args: dict[str, Any]) -> str:
     items = await db.list_watchlist()
     if not items:
@@ -607,6 +703,54 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "sell_position",
+            "description": "卖出/减仓持仓（用户表达「卖出/卖掉/清仓/减仓/抛售」并给出代码时调用；数量省略=全部清仓）。成功后持仓页自动更新。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "6 位代码"},
+                    "shares": {"type": "number", "description": "卖出份额/股数（省略=清仓全部）"},
+                },
+                "required": ["symbol"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "trigger_morning_report",
+            "description": "立即生成今日晨报（组合+账本+财务目标体检）。用户说「生成晨报/今日晨报/帮我体检」时调用。空库会提示先有数据。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "backup_now",
+            "description": "生成本地加密备份包（口令只显示一次）。用户说「备份/导出存档」时调用。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_setting",
+            "description": "修改应用偏好：涨跌颜色 color_scheme（cn 红涨绿跌 / us 绿涨红跌）、默认首页 default_tab（overview/holdings/market/ledger/chat）、语言 lang（zh/en）、数字格式 compact_numbers、快捷建议 show_suggestions（on/off）、晨报时间 morning_report_time（HH:MM）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "设置键名，见工具描述"},
+                    "value": {"type": "string", "description": "设置值，见工具描述"},
+                },
+                "required": ["key", "value"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 TOOL_IMPL: dict[str, Any] = {
@@ -627,6 +771,10 @@ TOOL_IMPL: dict[str, Any] = {
     "remove_from_watchlist": tool_remove_watchlist,
     "get_watchlist": tool_get_watchlist,
     "record_position": tool_record_position,
+    "sell_position": tool_sell_position,
+    "trigger_morning_report": tool_trigger_morning_report,
+    "backup_now": tool_backup_now,
+    "set_setting": tool_set_setting,
 }
 
 # 工具返回体量上限：超过即截断（防止把整库明细喂给模型）
@@ -637,3 +785,103 @@ def truncate_tool_result(text: str) -> str:
     if len(text) <= TOOL_RESULT_MAX_CHARS:
         return text
     return text[:TOOL_RESULT_MAX_CHARS] + "…（已截断，只保留关键数字）"
+
+
+# ---------------------------------------------------------------------------
+# 确定性动作执行：不配模型也能在对话里直接执行（卖出/晨报/备份）
+# ---------------------------------------------------------------------------
+_ACTION_STOP = {"卖出", "卖掉", "清仓", "减仓", "抛售", "全部", "帮我", "一下", "现在", "把"}
+
+
+def _match_position_by_name(q: str, positions: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """名称匹配持仓：全名命中或任意两字连续命中（跳过动作/虚词），用于「清仓茅台」这类说法。"""
+    for p in positions:
+        name = (p.get("name") or "").strip()
+        if not name:
+            continue
+        if name in q:
+            return p
+        for i in range(len(name) - 1):
+            bigram = name[i : i + 2]
+            if bigram in _ACTION_STOP:
+                continue
+            if bigram in q:
+                return p
+    return None
+
+
+async def run_action(question: str, lang: str = "zh") -> dict[str, Any]:
+    """对话内确定性动作：卖出/清仓/减仓 → sell_position；晨报 → 生成；备份 → 加密备份。
+    返回与记账回执同构的 dict（answer/level/route/…/actions），供 agent 成文与前端跳转。"""
+    q = question
+    import re as _re
+
+    if any(w in q for w in ("卖出", "卖掉", "清仓", "减仓", "抛售")):
+        m = _re.search(r"(\d{6})", q)
+        symbol = m.group(1) if m else ""
+        if not symbol:
+            matched = _match_position_by_name(q, await db.list_positions())
+            if matched:
+                symbol = matched["symbol"]
+        if not symbol:
+            return {
+                "answer": "卖出需要告诉我代码（例如「卖出 600519」）或持仓名称（例如「清仓贵州茅台」）。",
+                "level": "需要补充",
+                "route": "action",
+                "route_reason": "动作指令缺代码",
+                "metrics": {},
+                "flags": [],
+                "llm": "tool",
+                "actions": [{"tab": "holdings"}],
+            }
+        ans = await tool_sell_position({"symbol": symbol})
+        return {
+            "answer": ans,
+            "level": "已执行",
+            "route": "action",
+            "route_reason": "卖出/清仓指令",
+            "metrics": {},
+            "flags": [],
+            "llm": "tool",
+            "tools_used": ["sell_position"],
+            "actions": [{"tab": "holdings"}],
+        }
+
+    if "晨报" in q:
+        ans = await tool_trigger_morning_report({})
+        return {
+            "answer": ans,
+            "level": "已生成",
+            "route": "action",
+            "route_reason": "晨报指令",
+            "metrics": {},
+            "flags": [],
+            "llm": "tool",
+            "tools_used": ["trigger_morning_report"],
+            "actions": [{"tab": "overview"}],
+        }
+
+    if "备份" in q:
+        ans = await tool_backup_now({})
+        return {
+            "answer": ans,
+            "level": "已执行",
+            "route": "action",
+            "route_reason": "备份指令",
+            "metrics": {},
+            "flags": [],
+            "llm": "tool",
+            "tools_used": ["backup_now"],
+            "actions": [{"tab": "settings"}],
+        }
+
+    return {
+        "answer": "这条指令我暂时还不能直接执行。你可以试试：卖出持仓（如「卖出 600519」）、生成晨报（「生成今日晨报」）或备份（「备份一下」）。",
+        "level": "未识别",
+        "route": "action",
+        "route_reason": "动作指令未命中",
+        "metrics": {},
+        "flags": [],
+        "llm": "tool",
+        "actions": [],
+    }

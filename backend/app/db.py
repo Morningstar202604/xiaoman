@@ -124,7 +124,7 @@ SEED_SETTINGS = {
     "auto_refresh_seconds": "300",  # 自动刷新间隔（秒）
     "compact_numbers": "on",  # 大金额缩写（万/亿）
     "color_scheme": "cn",  # 涨跌颜色：cn 红涨绿跌（A股惯例）| us 绿涨红跌（海外惯例）
-    "default_tab": "overview",  # 默认首页：overview|holdings|market|ledger|chat
+    "default_tab": "chat",  # 默认首页：overview|holdings|market|ledger|chat（对话中枢为主，可在设置改回）
     "savings_goal": "20",  # 储蓄率目标（%）
     # ---- AI 回答（OpenAI 兼容端点，可配任意国产/海外模型；失败自动降级模板）----
     "ai_enabled": "on",  # 是否启用 AI 回答（AI 优先；三要素未配或调用失败时回退内置分析）
@@ -191,7 +191,8 @@ CREATE TABLE IF NOT EXISTS runs (
     route         TEXT NOT NULL DEFAULT '',
     llm           TEXT NOT NULL DEFAULT '',
     route_reason  TEXT NOT NULL DEFAULT '',
-    tools         TEXT NOT NULL DEFAULT ''
+    tools         TEXT NOT NULL DEFAULT '',
+    actions       TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id, id);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -269,6 +270,7 @@ async def _migrate_add_columns() -> None:
             "llm": "TEXT NOT NULL DEFAULT ''",
             "route_reason": "TEXT NOT NULL DEFAULT ''",
             "tools": "TEXT NOT NULL DEFAULT ''",
+            "actions": "TEXT NOT NULL DEFAULT '[]'",
         },
     }
     for table, adds in cols.items():
@@ -837,13 +839,14 @@ async def save_run(
     llm: str = "",
     route_reason: str = "",
     tools: list[str] | None = None,
+    actions: list[dict[str, Any]] | None = None,
     skip_session: bool = False,
 ) -> dict[str, Any]:
     conn = await _conn()
     created = datetime.now().astimezone().isoformat(timespec="seconds")
     cur = await conn.execute(
-        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason,tools)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO runs(thread_id,question,answer,level,flags_json,created_at,route,llm,route_reason,tools,actions)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (
             thread_id or "default",
             question,
@@ -855,6 +858,7 @@ async def save_run(
             llm or "",
             route_reason or "",
             json.dumps(tools or [], ensure_ascii=False),
+            json.dumps(actions or [], ensure_ascii=False),
         ),
     )
     await conn.commit()
@@ -915,6 +919,10 @@ async def list_runs(
             r["tools"] = json.loads(r.pop("tools") or "[]")
         except Exception:
             r["tools"] = []
+        try:
+            r["actions"] = json.loads(r.pop("actions") or "[]")
+        except Exception:
+            r["actions"] = []
     return rows
 
 

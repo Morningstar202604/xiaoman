@@ -38,6 +38,23 @@ function toolLabel(tr: (k: string) => string, name: string): string {
   return k ? tr(k) : name;
 }
 
+/** 对话结果的页面跳转意图 → 按钮文案 key（对话中枢：结果一键去对应页面） */
+const TAB_ACTION_KEYS: Record<string, string> = {
+  overview: "chat.goOverview",
+  holdings: "chat.goHoldings",
+  market: "chat.goMarket",
+  ledger: "chat.goLedger",
+  settings: "chat.goSettings",
+};
+
+/** 空账本首屏能力清单：对话里一句话能完成的事（点卡片即发送示例） */
+const CAP_GROUPS: { titleKey: string; chips: string[] }[] = [
+  { titleKey: "chat.capBook", chips: ["chat.capBook1", "chat.capBook2"] },
+  { titleKey: "chat.capMarket", chips: ["chat.capMarket1", "chat.capMarket2", "chat.capMarket3"] },
+  { titleKey: "chat.capHold", chips: ["chat.capHold1", "chat.capHold2", "chat.capHold3"] },
+  { titleKey: "chat.capAct", chips: ["chat.capAct1", "chat.capAct2", "chat.capAct3"] },
+];
+
 interface ChatMessage {
   id: number;
   role: "user" | "assistant";
@@ -48,6 +65,8 @@ interface ChatMessage {
   steps: StepInfo[];
   /** agent 模式：模型调用过的工具（实时展示） */
   tools?: AgentToolStep[];
+  /** 对话结果附带的跳转意图（对话中枢：结果一键去对应页面） */
+  actions?: { tab: string }[];
   error?: string;
   created_at?: string;
 }
@@ -87,6 +106,7 @@ export function ChatView({
   onNewSession,
   onSwitch,
   onOpenSettings,
+  onNavigate,
 }: {
   threadId: string;
   onNewSession: () => void;
@@ -94,6 +114,8 @@ export function ChatView({
   onSwitch: (threadId: string) => void;
   /** 跳转设置页（未接入 AI 时的引导入口） */
   onOpenSettings: () => void;
+  /** 对话中枢：结果附带的跳转意图，一键去对应页面 */
+  onNavigate: (tab: string) => void;
 }) {
   const { dashboard, bootstrap, sessions } = store.useApp();
   const { toast } = useToast();
@@ -160,6 +182,7 @@ export function ChatView({
                 llm: (r.llm || undefined) as "llm" | "template" | undefined,
                 tools: r.tools ?? [],
               },
+              actions: r.actions ?? [],
               created_at: r.created_at,
             },
           ]);
@@ -256,6 +279,7 @@ export function ChatView({
                   llm: (ev.llm as "llm" | "template") ?? "template",
                   tools: (ev.tools as string[] | undefined) ?? [],
                 },
+                actions: (ev.actions as { tab: string }[] | undefined) ?? [],
               });
               break;
             case "error":
@@ -457,6 +481,27 @@ export function ChatView({
                 <p className="mt-2 text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed text-balance">
                   {tr("chat.heroEmptyDesc")}
                 </p>
+                {/* 对话中枢：空账本首屏能力清单，点卡片即发送示例指令 */}
+                <div className="mt-6 mx-auto grid max-w-md grid-cols-2 gap-2 text-left">
+                  {CAP_GROUPS.map((g) => (
+                    <div key={g.titleKey} className="rounded-xl border border-border bg-card p-3">
+                      <div className="text-[11px] font-medium text-muted-foreground">{tr(g.titleKey)}</div>
+                      <div className="mt-1.5 flex flex-col items-start gap-1">
+                        {g.chips.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void send(tr(c))}
+                            className="text-left text-xs text-foreground/90 transition-colors hover:text-primary disabled:opacity-50"
+                          >
+                            {tr(c)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </>
             )}
             {suggestions.length > 0 && (
@@ -533,6 +578,20 @@ export function ChatView({
                       </div>
                       {m.meta && m.meta.route !== "general" && m.meta.route !== "nl_add" && (
                         <SummaryBlock meta={m.meta} />
+                      )}
+                      {m.actions && m.actions.length > 0 && (
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          {m.actions.map((a, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => onNavigate(a.tab)}
+                              className="rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] text-primary transition-colors hover:bg-primary/10"
+                            >
+                              {tr(TAB_ACTION_KEYS[a.tab] ?? "chat.goOverview")}
+                            </button>
+                          ))}
+                        </div>
                       )}
                       {m.tools && m.tools.length > 0 && (
                         <div className="mt-2.5 space-y-1 border-l-2 border-primary/30 pl-2.5">

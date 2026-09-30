@@ -27,12 +27,12 @@ def test_graph_structure_has_all_agent_nodes() -> None:
     assert {"supervisor", "collect_market", "collect_ledger", "risk", "finalize", "record", "memory", "general"} <= names
 
 
-def test_supervisor_routes_to_four_branches() -> None:
-    """supervisor 条件路由：记账 / 记忆 / 通用 / 财务四条支路，全部连到对应 agent 节点。"""
+def test_supervisor_routes_to_five_branches() -> None:
+    """supervisor 条件路由：记账 / 记忆 / 通用 / 动作 / 财务五条支路，全部连到对应 agent 节点。"""
     g = agent_graph.get_graph().get_graph()
     sup_edges = [e for e in g.edges if e.source == "supervisor"]
-    assert len(sup_edges) == 4, f"supervisor 应有 4 条条件边，实际 {len(sup_edges)}"
-    assert {e.target for e in sup_edges} == {"record", "memory", "general", "collect_market"}
+    assert len(sup_edges) == 5, f"supervisor 应有 5 条条件边，实际 {len(sup_edges)}"
+    assert {e.target for e in sup_edges} == {"record", "memory", "general", "action", "collect_market"}
 
 
 # ---------------------------------------------------------------------------

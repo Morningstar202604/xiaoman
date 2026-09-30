@@ -245,6 +245,7 @@ export default function App() {
                     onNewSession={() => void newSession()}
                     onSwitch={openChat}
                     onOpenSettings={() => setTab("settings")}
+                    onNavigate={(tab) => setTab(tab as Tab)}
                   />
                 ) : (
                   <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">

@@ -136,6 +136,8 @@ export interface RunRecord {
   route_reason?: string;
   /** 本轮调用过的工具（agent 模式落库） */
   tools?: string[];
+  /** 对话结果附带的页面跳转意图（对话中枢：结果一键去对应页面） */
+  actions?: { tab: string }[];
 }
 
 export interface SessionItem {
