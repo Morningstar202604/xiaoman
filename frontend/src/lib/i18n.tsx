@@ -25,9 +25,11 @@ const I18nCtx = createContext<I18nState | null>(null);
 function load(): Lang {
   try {
     const v = localStorage.getItem(KEYS.lang);
-    return v === "zh" ? "zh" : "en";
+    if (v === "zh" || v === "en") return v;
+    // 未手动设置时跟随浏览器语言：中文环境默认中文（国内用户优先，不弹英文界面）
+    return navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
   } catch {
-    return "en";
+    return "zh";
   }
 }
 
