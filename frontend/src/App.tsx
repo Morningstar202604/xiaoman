@@ -3,6 +3,7 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { LayoutDashboard, LineChart, MessageSquare, NotebookPen, Sparkles, Wallet, X } from "lucide-react";
 import { TopBar, type TopTab } from "@/components/TopBar";
 import { SessionSidebar } from "@/components/SessionSidebar";
+import { Onboarding } from "@/components/Onboarding";
 import { Dashboard } from "@/components/Dashboard";
 import { HoldingsView } from "@/components/HoldingsView";
 import { MarketView } from "@/components/MarketView";
@@ -40,6 +41,7 @@ export default function App() {
   const [pendingDelete, setPendingDelete] = useState<{ id: number; threadId: string } | null>(null);
   const [inited, setInited] = useState(false);
   const [aiBannerDismiss, setAiBannerDismiss] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // AI 未配置引导：bootstrap 健康检查标记（配置后消失）
   const llmConfigured = bootstrap?.health?.llm_configured ?? true;
@@ -66,6 +68,17 @@ export default function App() {
       defaultApplied.current = true;
     }
   }, [defaultTab]);
+
+  // 首次启动引导：空账本（data_note=empty）且本机未完成过引导时弹出一次
+  useEffect(() => {
+    if (bootstrap?.settings.data_note !== "empty") return;
+    try {
+      if (localStorage.getItem("wo.onboarded") === "1") return;
+    } catch {
+      return;
+    }
+    setShowOnboarding(true);
+  }, [bootstrap]);
 
   // 仪表盘自动刷新（设置中心开关）
   const autoRefresh = bootstrap?.settings.auto_refresh === "on";
@@ -306,6 +319,21 @@ export default function App() {
 
       {/* 访问口令：401 时应用内输入，替代原生 prompt */}
       <PasswordDialog />
+
+      {/* 首次启动三步引导（空账本时出现一次） */}
+      {showOnboarding && (
+        <Onboarding
+          onNavigate={(tab) => setTab(tab)}
+          onDone={() => {
+            try {
+              localStorage.setItem("wo.onboarded", "1");
+            } catch {
+              /* ignore */
+            }
+            setShowOnboarding(false);
+          }}
+        />
+      )}
     </div>
       </TooltipProvider>
     </MotionConfig>
