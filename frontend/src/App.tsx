@@ -250,8 +250,8 @@ export default function App() {
                 transition={{ duration: 0.16, ease: "easeOut" }}
                 className="mx-auto max-w-3xl px-4 py-4 pb-24 md:pb-8"
               >
-                {tab === "overview" && <Dashboard onGoLedger={() => setTab("ledger")} />}
-                {tab === "holdings" && <HoldingsView />}
+                {tab === "overview" && <Dashboard onGoLedger={() => setTab("ledger")} onGoMarket={() => setTab("market")} onGoChat={() => setTab("chat")} />}
+                {tab === "holdings" && <HoldingsView onGoMarket={() => setTab("market")} />}
                 {tab === "market" && <MarketView />}
                 {tab === "ledger" && <EntryView />}
                 {tab === "settings" && <SettingsView />}

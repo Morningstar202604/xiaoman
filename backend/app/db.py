@@ -1,7 +1,8 @@
 """组合库 + 运行历史持久化（aiosqlite，单连接串行，不阻塞事件循环）。
 
 所有函数都是异步的；连接在启动时创建（WAL 模式）。
-首次运行自动建表并种入一套示例数据（相对当前日期生成，保证"本月"口径随时可看）。
+首次运行自动建表。全新库为**空账本**（不种示例数据）：用户从记第一笔/添加持仓开始；
+示例数据仅在设置页显式"导入示例数据"时种入（演示用）。
 """
 
 from __future__ import annotations
@@ -238,10 +239,19 @@ async def init_db() -> None:
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.executescript(SCHEMA)
     await _migrate_add_columns()
-    # 全新库（settings 表为空）才种示例数据；老库即使用户清空了持仓也绝不重置
-    if await _count("settings") == 0:
-        await _seed_all()
+    # 全新库（settings 表为空）不再自动种示例：空账本起步，用户自己记账/加持仓。
+    # 老库即使用户清空了数据也绝不重置；示例数据只能显式导入（设置页/演示 API）。
     await _ensure_defaults()
+    if await _count("positions") == 0:
+        conn = await _conn()
+        row = await (await conn.execute("SELECT value FROM settings WHERE key='data_note'")).fetchone()
+        if row and str(row["value"]).startswith("seed"):
+            # 若旧库被清空但 data_note 仍是 seed，降级为 empty，避免误标示例
+            await conn.execute(
+                "INSERT INTO settings(key,value) VALUES('data_note','empty') "
+                "ON CONFLICT(key) DO UPDATE SET value='empty'"
+            )
+            await conn.commit()
     await _migrate_sessions_from_runs()
     await _db.commit()
     _inited = True
@@ -332,6 +342,12 @@ async def _ensure_defaults() -> None:
         "INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)",
         list(DEFAULT_SETTINGS.items()),
     )
+    # 空库标记 data_note=empty：与示例库（seed）区分，前端据此不显示示例数据横幅
+    if await _count("positions") == 0:
+        await conn.execute(
+            "INSERT INTO settings(key,value) VALUES('data_note','empty') "
+            "ON CONFLICT(key) DO UPDATE SET value='empty'"
+        )
 
 
 async def _migrate_sessions_from_runs() -> None:

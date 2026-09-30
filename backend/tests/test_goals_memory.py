@@ -17,6 +17,7 @@ from app import quotes as quotes_mod
 async def _temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "wealth.db")
     await db.init_db()
+    await db.reset_to_seed()
     yield
     await db.close_db()
 

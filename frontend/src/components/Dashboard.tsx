@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, HeartPulse, NotebookPen, RefreshCw, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, HeartPulse, LineChart, MessageSquare, NotebookPen, RefreshCw, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -510,7 +510,15 @@ function GoalsCard({ goals, net }: { goals: DashboardData["goals"]; net: number 
   );
 }
 
-export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
+export function Dashboard({
+  onGoLedger,
+  onGoMarket,
+  onGoChat,
+}: {
+  onGoLedger?: () => void;
+  onGoMarket?: () => void;
+  onGoChat?: () => void;
+} = {}) {
   const { dashboard, loading, bootstrap, refreshTick } = store.useApp();
   const { t: tr } = useI18n();
   const [trend, setTrend] = useState<TrendMonth[] | null>(null);
@@ -568,21 +576,30 @@ export function Dashboard({ onGoLedger }: { onGoLedger?: () => void } = {}) {
   const holdingsValue = t.total_market_value - cash;
   const todayPnl = dashboard.today_pnl.total;
 
-  // 空数据降级为引导：不渲染零值统计卡与风险横幅（零值 + 误报警是新用户劝退组合）
+  // 空数据降级为引导：不渲染零值统计卡与风险横幅（零值 + 误报警是新用户劝退组合）。
+  // 新用户首启即此态：一句话记账条 + 开始引导 + 大盘，聊天式起步。
   if (dashboard.positions.length === 0 && dashboard.transactions.length === 0) {
     return (
       <div className="space-y-3">
+        <QuickLedgerBar />
         <Card className="p-6 text-center">
           <div className="text-base font-semibold">{tr("dash.emptyTitle")}</div>
           <p className="mt-1.5 text-sm text-muted-foreground text-balance">
             {tr("dash.emptyDesc")}
           </p>
-          <div className="mt-4 flex justify-center">
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
             <Button size="sm" onClick={() => onGoLedger?.()}>
               <NotebookPen className="w-4 h-4" /> {tr("dash.goLedger")}
             </Button>
+            <Button size="sm" variant="outline" onClick={() => onGoMarket?.()}>
+              <LineChart className="w-4 h-4" /> {tr("dash.emptyHoldingBtn")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => onGoChat?.()}>
+              <MessageSquare className="w-4 h-4" /> {tr("dash.emptyAskBtn")}
+            </Button>
           </div>
         </Card>
+        <IndicesStrip indices={dashboard.indices} />
         <p className="px-2 text-xs text-muted-foreground">
           {tr("dash.demoHint")}
         </p>

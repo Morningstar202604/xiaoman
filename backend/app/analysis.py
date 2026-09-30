@@ -397,7 +397,7 @@ async def collect_dashboard() -> dict[str, Any]:
             "portfolio": "本地组合库（SQLite）",
             "ledger": "本地账本（SQLite）",
             "quotes": quotes_label,
-            "seeded": settings.get("data_note", "seed") != "user",
+            "seeded": settings.get("data_note", "") == "seed",
         },
     }
 

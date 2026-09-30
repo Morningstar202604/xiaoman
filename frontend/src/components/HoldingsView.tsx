@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { LineChart } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { store } from "@/lib/store";
 import { fmtMoney, pnlClass } from "@/lib/format";
@@ -8,7 +10,7 @@ import { PositionsTable } from "@/components/PositionsTable";
 import { cn } from "@/lib/utils";
 
 /** 持仓页：按 股票/基金/理财 分组明细 + 风险概览（集中度 / 行业分布）。 */
-export function HoldingsView() {
+export function HoldingsView({ onGoMarket }: { onGoMarket?: () => void } = {}) {
   const { t } = useI18n();
   const { dashboard, bootstrap } = store.useApp();
   const compact = (bootstrap?.settings.compact_numbers ?? "on") === "on";
@@ -18,6 +20,24 @@ export function HoldingsView() {
   const [kind, setKind] = useState<string>("all");
 
   if (!dashboard) return null;
+
+  // 空持仓引导：新用户还没有任何持仓时不给零值统计与空图表
+  if (positions.length === 0) {
+    return (
+      <div className="space-y-3">
+        <Card className="p-6 text-center">
+          <div className="text-base font-semibold">{t("hold.emptyTitle")}</div>
+          <p className="mt-1.5 text-sm text-muted-foreground text-balance">{t("hold.emptyDesc")}</p>
+          <div className="mt-4 flex justify-center">
+            <Button size="sm" onClick={() => onGoMarket?.()}>
+              <LineChart className="w-4 h-4" /> {t("hold.emptyBtn")}
+            </Button>
+          </div>
+        </Card>
+        <p className="px-2 text-xs text-muted-foreground">{t("hold.emptyHint")}</p>
+      </div>
+    );
+  }
 
   const filtered = kind === "all" ? positions : positions.filter((p) => p.kind === kind);
   const cash = positions.filter((p) => p.kind === "现金").reduce((s, p) => s + p.cost, 0);
