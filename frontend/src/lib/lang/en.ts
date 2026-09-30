@@ -418,6 +418,8 @@ export const en: Record<string, string> = {
   "market.emptyWatch": "No watchlist yet — search to add symbols you follow",
   "market.quoteSrc": "Quotes: Eastmoney primary, Sina fallback",
   "market.srcSnapshot": "Quotes are offline estimates (snapshot, not realtime) — confirm in your trading app",
+  "market.offline": "Offline",
+  "market.holdingSrc": "Holdings quotes: {src}",
   "report.generate": "Generate today's briefing",
   "report.title": "Today's briefing",
   "report.generating": "Generating…",

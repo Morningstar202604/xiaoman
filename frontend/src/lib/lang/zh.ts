@@ -418,6 +418,8 @@ export const zh: Record<string, string> = {
   "market.emptyWatch": "还没有自选，搜索添加你关注的标的",
   "market.quoteSrc": "行情来源：东财为主、新浪备源",
   "market.srcSnapshot": "行情为离线估值（快照价，非实时），请以交易软件为准",
+  "market.offline": "离线",
+  "market.holdingSrc": "持仓行情：{src}",
   "report.generate": "生成今日晨报",
   "report.title": "今日晨报",
   "report.generating": "生成中…",

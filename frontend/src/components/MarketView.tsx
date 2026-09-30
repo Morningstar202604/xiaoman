@@ -193,6 +193,11 @@ export function MarketView() {
                     </button>
                     <span className="flex shrink-0 items-center gap-3 tabular-nums">
                       <span className="w-16 text-right">{w.price != null ? fmtMoney(w.price, false, true) : "—"}</span>
+                      {(w as { quote_source?: string }).quote_source === "snapshot" && (
+                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium leading-none text-amber-700">
+                          {t("market.offline")}
+                        </span>
+                      )}
                       <span className={cn("w-16 text-right", pnlClass(w.change_pct ?? 0))}>{w.change_pct != null ? fmtPct(w.change_pct, true) : "—"}</span>
                       <button
                         type="button"
@@ -218,29 +223,34 @@ export function MarketView() {
         ) : holdings.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">{t("holdings.empty")}</p>
         ) : (
-          <ul className="divide-y divide-border/60">
-            {holdings.map((p) => {
-              const day = dashboard?.today_pnl.items[p.symbol];
-              return (
-                <li key={p.symbol} className="flex items-center justify-between gap-2 py-2 text-sm">
-                  <button
-                    type="button"
-                    className="min-w-0 text-left group"
-                    onClick={() => setKline({ symbol: p.symbol, name: p.name })}
-                    aria-label={t("pos.viewK", { name: p.name })}
-                  >
-                    <span className="truncate font-medium group-hover:text-primary">{p.name}</span>
-                    <span className="ml-1.5 text-xs text-muted-foreground">{p.kind} · {p.symbol}</span>
-                  </button>
-                  <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                    <span className="w-16 text-right">{fmtMoney(p.last, false, true)}</span>
-                    <span className={cn("w-16 text-right", pnlClass(day))}>{day != null ? fmtPct((day / Math.max(1, p.market_value)) * 100, true) : "—"}</span>
-                    <span className={cn("w-20 text-right", pnlClass(p.pnl))}>{fmtMoney(p.pnl, true, true)}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <ul className="divide-y divide-border/60">
+              {holdings.map((p) => {
+                const day = dashboard?.today_pnl.items[p.symbol];
+                return (
+                  <li key={p.symbol} className="flex items-center justify-between gap-2 py-2 text-sm">
+                    <button
+                      type="button"
+                      className="min-w-0 text-left group"
+                      onClick={() => setKline({ symbol: p.symbol, name: p.name })}
+                      aria-label={t("pos.viewK", { name: p.name })}
+                    >
+                      <span className="truncate font-medium group-hover:text-primary">{p.name}</span>
+                      <span className="ml-1.5 text-xs text-muted-foreground">{p.kind} · {p.symbol}</span>
+                    </button>
+                    <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                      <span className="w-16 text-right">{fmtMoney(p.last, false, true)}</span>
+                      <span className={cn("w-16 text-right", pnlClass(day))}>{day != null ? fmtPct((day / Math.max(1, p.market_value)) * 100, true) : "—"}</span>
+                      <span className={cn("w-20 text-right", pnlClass(p.pnl))}>{fmtMoney(p.pnl, true, true)}</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {t("market.holdingSrc", { src: dashboard?.source.quotes ?? "" })} · {t("notAdvice")}
+            </p>
+          </>
         )}
       </Card>
 
