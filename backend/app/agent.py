@@ -27,6 +27,14 @@ from typing import Any
 
 from . import db, llm, tools
 
+# 写类工具已被确定性分支覆盖（记账/记忆/买卖/设置/备份/晨报都有前置 action/record/memory
+# 节点拦截），agent 模式只暴露读类 + 自选维护工具，防止模型在追问/分析语境里越权落库。
+WRITE_EXCLUDED = {
+    "record_transaction", "save_user_memory", "record_position", "sell_position",
+    "set_setting", "backup_now", "trigger_morning_report",
+}
+READ_TOOLS = [t for t in tools.TOOLS if t["function"]["name"] not in WRITE_EXCLUDED]
+
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
 
 MAX_TURNS = 5
@@ -159,7 +167,7 @@ async def run_agent(
             resp = await client.chat.completions.create(
                 model=cfg["model"],
                 messages=messages,
-                tools=tools.TOOLS,
+                tools=READ_TOOLS,
                 tool_choice="auto",
                 temperature=0.2,
             )

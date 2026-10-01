@@ -79,7 +79,15 @@ async def _is_finance_followup(question: str, thread_id: str | None) -> bool:
     if not await llm.llm_available():
         return False
     runs = await db.list_runs(thread_id, 1)
-    return bool(runs) and _has_finance_word(str(runs[0].get("question") or ""))
+    if not runs:
+        return False
+    prev = runs[0]
+    if _has_finance_word(str(prev.get("question") or "")):
+        return True
+    # 词表之外：上一轮本身就是财务路由（记账/动作/分析）也算承接上下文
+    return str(prev.get("route") or "") in (
+        "nl_add", "bookkeeping", "record", "action", "market", "ledger", "goal", "both",
+    )
 
 
 def _looks_like_record(question: str) -> bool:
@@ -91,38 +99,53 @@ def _looks_like_record(question: str) -> bool:
 
 
 async def _try_nl_add(question: str, reason: str, emit: Emit, lang: str = "zh") -> dict[str, Any] | None:
-    """对话内一句话记账：规则解析（无需模型）→ 入账 → 回执（含撤销路径）。"""
+    """对话内一句话记账：规则解析（无需模型）→ 入账 → 回执（含撤销路径）。
+
+    支持一句多笔（用逗号/顿号/分号/和/及 分隔），逐段独立解析；全部可解析才入账（原子）。
+    """
     if not _looks_like_record(question):
         return None
-    parsed = nlparse.parse(question)
-    if parsed is None:
+    import re as _re
+
+    parts = [p.strip() for p in _re.split(r"[，,。;；、和及]", question) if p.strip()]
+    parsed_all = [nlparse.parse(p) for p in parts]
+    parsed_all = [p for p in parsed_all if p is not None]
+    if not parsed_all:
         return None
 
-    await emit({
-        "type": "step", "id": "nl", "label": "识别记账",
-        "detail": f"{parsed['item']} {abs(parsed['amount']):.2f} 元（{parsed['category']}）", "phase": "start",
-    })
-    ins = await db.add_transaction(
-        parsed["date"], parsed["item"], parsed["category"], parsed["amount"]
-    )
-    direction = "收入" if parsed["amount"] > 0 else "支出"
+    for parsed in parsed_all:
+        await emit({
+            "type": "step", "id": "nl", "label": "识别记账",
+            "detail": f"{parsed['item']} {abs(parsed['amount']):.2f} 元（{parsed['category']}）", "phase": "start",
+        })
+    inserted = [
+        await db.add_transaction(p["date"], p["item"], p["category"], p["amount"]) for p in parsed_all
+    ]
     if lang == "zh":
-        answer = (
-            f"已记一笔：{parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} 元"
-            f"（{parsed['category']} · {direction}）。\n\n"
-            "记错了可以在「记账」页删掉这一条。"
-        )
+        lines = [
+            f"{p['date']} {p['item']} {abs(p['amount']):,.2f} 元"
+            f"（{p['category']} · {'收入' if p['amount'] > 0 else '支出'}）"
+            for p in parsed_all
+        ]
+        if len(lines) == 1:
+            answer = "已记一笔：" + lines[0] + "。\n\n记错了可以在「记账」页删掉这一条。"
+        else:
+            answer = "已记 " + str(len(lines)) + " 笔：\n" + "\n".join("· " + l for l in lines) + "\n\n记错了可以在「记账」页删掉。"
     else:
-        direction_en = "income" if parsed["amount"] > 0 else "expense"
-        answer = (
-            f"Recorded: {parsed['date']} {parsed['item']} {abs(parsed['amount']):,.2f} CNY"
-            f" ({parsed['category']} · {direction_en}).\n\n"
-            "Made a mistake? You can delete this entry on the Ledger page."
-        )
-    await emit({
-        "type": "step", "id": "nl", "label": "已入账",
-        "detail": f"{parsed['category']} {abs(parsed['amount']):,.2f} 元", "phase": "done",
-    })
+        lines = [
+            f"{p['date']} {p['item']} {abs(p['amount']):,.2f} CNY"
+            f" ({p['category']} · {'income' if p['amount'] > 0 else 'expense'})"
+            for p in parsed_all
+        ]
+        if len(lines) == 1:
+            answer = "Recorded: " + lines[0] + ".\n\nMade a mistake? Delete it on the Ledger page."
+        else:
+            answer = "Recorded " + str(len(lines)) + " entries:\n" + "\n".join("· " + l for l in lines) + "\n\nDelete on the Ledger page if wrong."
+    for p in parsed_all:
+        await emit({
+            "type": "step", "id": "nl", "label": "已入账",
+            "detail": f"{p['category']} {abs(p['amount']):,.2f} 元", "phase": "done",
+        })
     return {
         "answer": answer,
         "level": "已记账",
@@ -131,7 +154,7 @@ async def _try_nl_add(question: str, reason: str, emit: Emit, lang: str = "zh") 
         "metrics": {},
         "flags": [],
         "llm": "template",
-        "tx_id": ins["id"],
+        "tx_id": inserted[0]["id"],
     }
 
 
