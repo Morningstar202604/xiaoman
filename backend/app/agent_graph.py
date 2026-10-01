@@ -86,16 +86,17 @@ async def supervisor(state: AgentState) -> dict[str, Any]:
     if route == "action":
         return {"route": "action", "reason": reason, "mode": "deterministic"}
 
-    # 一句话记账优先：短句 + 能解析出金额 → 记账 agent（规则秒回，不调模型）
+    # 记忆指令其次（先于记账）：「记住/记得 …」明确是记忆意图，
+    # 否则「记住我下个月要交房租 5000」会被一句话记账当成支出入账。
+    if service._looks_like_memory(q):
+        return {"route": "memory", "reason": "识别为记忆指令，直接存长期记忆", "mode": "deterministic"}
+
+    # 一句话记账：短句 + 能解析出金额 → 记账 agent（规则秒回，不调模型）
     parsed = None
     if service._looks_like_record(q):
         parsed = nlparse.parse(q)
     if parsed is not None:
         return {"route": "bookkeeping", "reason": reason, "parsed": parsed}
-
-    # 记忆指令其次：「记住/记得 …」直接存长期记忆（规则级，不调模型）
-    if service._looks_like_memory(q):
-        return {"route": "memory", "reason": "识别为记忆指令，直接存长期记忆", "mode": "deterministic"}
 
     if route == "general":
         return {"route": "general", "reason": reason, "mode": "deterministic"}
