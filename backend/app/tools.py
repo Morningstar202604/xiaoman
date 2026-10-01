@@ -916,7 +916,13 @@ async def run_action(question: str, lang: str = "zh") -> dict[str, Any]:
                 "llm": "tool",
                 "actions": [{"tab": "holdings"}],
             }
-        ans = await tool_sell_position({"symbol": symbol})
+        sell_args: dict[str, Any] = {"symbol": symbol}
+        # 「卖出一半/半仓/减半」= 减仓到剩余一半，不能误清仓
+        if _re.search(r"一半|半仓|减半", q):
+            cur = next((p for p in await db.list_positions() if p["symbol"] == symbol), None)
+            if cur:
+                sell_args["shares"] = round(cur["shares"] / 2, 4)
+        ans = await tool_sell_position(sell_args)
         return {
             "answer": ans,
             "level": "已执行",

@@ -111,9 +111,9 @@ NOISE_WORDS = [
 ]
 
 # 金额识别：带货币单位的优先；无单位时先剔掉易混淆的数字片段再取第一个
-_AMOUNT_PREFIX = re.compile(r"(?:¥|￥)\s*(\d[\d,]*(?:\.\d+)?)\s*(万)?")
-_AMOUNT_SUFFIX = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万)?\s*(?:元|块钱|块|人民币)")
-_AMOUNT_PLAIN = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万)?")
+_AMOUNT_PREFIX = re.compile(r"(?:¥|￥)\s*(\d[\d,]*(?:\.\d+)?)\s*(万|w|W|k|K)?")
+_AMOUNT_SUFFIX = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万|w|W|k|K)?\s*(?:元|块钱|块|人民币)")
+_AMOUNT_PLAIN = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万|w|W|k|K)?")
 # 月份、字母型号（iPhone15）、数量单位（10股）——都不是金额
 _NON_AMOUNT_DIGITS = re.compile(
     r"\d{1,2}\s*月|[A-Za-z]+\d+|\d+\s*(?:股|份|手|个|件|人|天|次|张|瓶|斤|米|码|楼|号)"
@@ -131,8 +131,11 @@ _CN_NOT_MONEY = re.compile(
 
 def _to_amount(m: re.Match) -> float:
     num = float(m.group(1).replace(",", ""))
-    if m.group(2) == "万":
+    unit = m.group(2) or ""
+    if unit in ("万", "w", "W"):
         num *= 10000
+    elif unit in ("k", "K"):
+        num *= 1000
     return round(num, 2)
 
 

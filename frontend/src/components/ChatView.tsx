@@ -53,6 +53,7 @@ const CAP_GROUPS: { titleKey: string; chips: string[] }[] = [
   { titleKey: "chat.capMarket", chips: ["chat.capMarket1", "chat.capMarket2", "chat.capMarket3"] },
   { titleKey: "chat.capHold", chips: ["chat.capHold1", "chat.capHold2", "chat.capHold3"] },
   { titleKey: "chat.capAct", chips: ["chat.capAct1", "chat.capAct2", "chat.capAct3"] },
+  { titleKey: "chat.capSet", chips: ["chat.capSet1", "chat.capSet2", "chat.capSet3"] },
 ];
 
 interface ChatMessage {
