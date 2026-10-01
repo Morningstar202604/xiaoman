@@ -220,6 +220,21 @@ def _clean_item(rest: str, category: str, hit: str | None) -> str:
     return t[:40] or category
 
 
+# 咨询/意图词：命中且无记账动作词时，不当作一句话记账（避免「我月收入24800，想
+# 开始理财」被记成收入、分析/建议类提问被入账等语义劫持）。
+QUERY_MARKERS = (
+    "想", "建议", "推荐", "分析", "怎么样", "如何", "怎么", "计划", "适合",
+    "配置", "帮我", "看看", "优化", "能否", "可以吗", "理财", "投资", "评估",
+    "规划", "目标", "策略",
+)
+# 明确记账动作词：命中其一即认定是记账语气（咨询词同时命中时仍记账）。
+RECORD_VERBS = (
+    "记一笔", "花了", "买了", "买", "消费", "支付", "付了", "交", "充值",
+    "打车", "吃饭", "喝了", "工资", "奖金", "报销", "退款", "到账", "分红",
+    "利息", "发了", "转了", "存了", "还了", "扣了",
+)
+
+
 def parse(text: str) -> dict | None:
     """规则解析。失败（拿不到金额）返回 None。"""
     t = text.strip()
@@ -230,6 +245,14 @@ def parse(text: str) -> dict | None:
     d, rest = _parse_date(t, today)
     amount = _parse_amount(rest)
     if amount is None:
+        return None
+
+    # 咨询语气优先于记账：例如「想开始理财」「给我点建议」不应入账。
+    if any(m in t for m in QUERY_MARKERS) and not any(v in t for v in RECORD_VERBS):
+        return None
+
+    # 6 位数字是 A 股代码形态（600519/000001…），不是记账金额：出现代码语境时不做记账。
+    if re.search(r"\d{6}", t) and any(k in t for k in ("股", "买入", "卖出", "清仓", "建仓", "加仓", "股票", "基金", "ETF")):
         return None
 
     is_income = any(k in t for k in INCOME_KEYWORDS)

@@ -816,6 +816,88 @@ async def run_action(question: str, lang: str = "zh") -> dict[str, Any]:
     q = question
     import re as _re
 
+    if any(w in q for w in ("默认首页", "涨跌颜色", "颜色主题", "换颜色", "切换语言")):
+        key, value = None, None
+        if "默认首页" in q:
+            key = "default_tab"
+            vmap = {"总览": "overview", "持仓": "holdings", "行情": "market",
+                    "记账": "ledger", "问ai": "chat", "对话": "chat", "chat": "chat"}
+            for k, v in vmap.items():
+                if k in q:
+                    value = v
+                    break
+        elif any(w in q for w in ("涨跌颜色", "颜色主题", "换颜色")):
+            key = "color_scheme"
+            value = "us" if ("绿涨" in q or "绿色" in q or "us" in q.lower()) else "cn"
+        elif "切换语言" in q or "语言" in q:
+            key = "lang"
+            value = "en" if ("英文" in q or "english" in q.lower() or "en" in q.lower()) else "zh"
+        if key and value:
+            ans = await tool_set_setting({"key": key, "value": value})
+            return {
+                "answer": ans,
+                "level": "已执行",
+                "route": "action",
+                "route_reason": "设置指令",
+                "metrics": {},
+                "flags": [],
+                "llm": "tool",
+                "tools_used": ["set_setting"],
+                "actions": [{"tab": "settings"}],
+            }
+        return {
+            "answer": "我可以帮你改这些设置：默认首页（总览/持仓/行情/记账/问AI）、涨跌颜色（红涨绿跌/绿涨红跌）、语言（中文/英文）。例如「默认首页改成持仓」「涨跌颜色改成绿涨红跌」。",
+            "level": "需要补充",
+            "route": "action",
+            "route_reason": "设置指令参数不足",
+            "metrics": {},
+            "flags": [],
+            "llm": "tool",
+            "actions": [{"tab": "settings"}],
+        }
+
+    if any(w in q for w in ("买入", "买进", "建仓", "加仓")):
+        m = _re.search(r"(\d{6})", q)
+        symbol = m.group(1) if m else ""
+        sm = _re.search(r"(\d+)\s*[股份手]", q)
+        shares = int(sm.group(1)) if sm else 100
+        if not symbol:
+            return {
+                "answer": "买入需要告诉我股票代码（例如「买入 600519 100 股」）。",
+                "level": "需要补充",
+                "route": "action",
+                "route_reason": "买入指令缺代码",
+                "metrics": {},
+                "flags": [],
+                "llm": "tool",
+                "actions": [{"tab": "holdings"}],
+            }
+        q_ = await quote_now(symbol)
+        cost = float((q_ or {}).get("price") or 0)
+        if cost <= 0:
+            return {
+                "answer": "无法获取当前行情作为成本价，请补充成本价（例如「买入 600519 100 股 成本 1250」）。",
+                "level": "需要补充",
+                "route": "action",
+                "route_reason": "买入缺成本",
+                "metrics": {},
+                "flags": [],
+                "llm": "tool",
+                "actions": [{"tab": "holdings"}],
+            }
+        ans = await tool_add_position({"symbol": symbol, "shares": shares, "cost": cost})
+        return {
+            "answer": ans,
+            "level": "已执行",
+            "route": "action",
+            "route_reason": "买入指令",
+            "metrics": {},
+            "flags": [],
+            "llm": "tool",
+            "tools_used": ["add_position"],
+            "actions": [{"tab": "holdings"}],
+        }
+
     if any(w in q for w in ("卖出", "卖掉", "清仓", "减仓", "抛售")):
         m = _re.search(r"(\d{6})", q)
         symbol = m.group(1) if m else ""
