@@ -6,8 +6,29 @@
 
 1. Fork 本仓库到你的账号
 2. 从 `main` 创建功能分支：`git checkout -b feat/your-feature`
-3. 本地开发与运行方式见 [README](README.md)
-4. 提交改动并发起 Pull Request，描述清楚改了什么、为什么改
+3. **新手必读 [开发指南](docs/DEVELOPMENT.md)**（代码地图、加工具/加设置/加路由的 6 步教程、调试技巧）
+4. 本地跑起来：
+
+   ```bash
+   cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+   .venv/bin/python -m uvicorn app.main:app --port 8787     # 后端 http://127.0.0.1:8787
+   cd frontend && npm install && npm run dev                # 前端 http://127.0.0.1:5199
+   ```
+
+5. 提交改动并发起 Pull Request，描述清楚改了什么、为什么改
+
+## 本地开发与测试（提交前必过）
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests -q --cov=app   # 185+ 用例全绿，覆盖率 75%+ 基线
+.venv/bin/python -m ruff check app tests        # 0 错误
+cd frontend && npm run build                    # tsc + vite 构建通过
+```
+
+- 新功能/修复请**配套测试**（`tests/` 按模块归文件），测试不触网、函数级隔离
+- 改设置项/新增配置：后端校验 + `tools.py` 白名单 + 前端双语文案 + `docs/CONFIG.md` 三处同步
+- 不要破坏三条铁律：数字只由分析内核算、写操作只走确定性分支、外部失败自动降级
 
 ## 提交规范
 

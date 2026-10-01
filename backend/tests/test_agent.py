@@ -243,3 +243,43 @@ async def test_buy_with_quote_records_position(temp_db, monkeypatch):
     assert len(mine) == 1
     assert mine[0]["shares"] == 100
     assert mine[0]["cost"] == 1250.0
+
+
+# ---------------------------------------------------------------------------
+# 补充：设置白名单 / 自选增删 / 半仓卖出（工具执行体直达）
+# ---------------------------------------------------------------------------
+
+
+async def test_set_setting_rejects_unknown_key(temp_db):
+    """tool_set_setting 只接受白名单键，未知键报错。"""
+    out = await tools.tool_set_setting({"key": "not_a_key", "value": "1"})
+    assert "不支持" in out or "未知" in out or "仅支持" in out
+
+
+async def test_set_setting_applies_valid_key(temp_db):
+    """合法键（color_scheme）写入设置。"""
+    out = await tools.tool_set_setting({"key": "color_scheme", "value": "us"})
+    assert "us" in out.lower() or "绿涨红跌" in out
+    settings = await db.get_settings()
+    assert settings.get("color_scheme") == "us"
+
+
+async def test_watchlist_add_remove_roundtrip(temp_db):
+    """自选增删往返（db API 名为 list/add/delete_watchlist）。"""
+    await tools.tool_add_watchlist({"symbol": "600519", "name": "贵州茅台"})
+    wl = await db.list_watchlist()
+    assert any(w["symbol"] == "600519" for w in wl)
+    await tools.tool_remove_watchlist({"symbol": "600519"})
+    wl2 = await db.list_watchlist()
+    assert all(w["symbol"] != "600519" for w in wl2)
+
+
+async def test_sell_half_keeps_remainder(temp_db):
+    """「卖出一半」：份额减半、保留一半。"""
+    before = {p["symbol"]: p["shares"] for p in await db.list_positions()}
+    target = next((s for s in before if before[s] > 1), None)
+    assert target, "seed 应有可减半持仓"
+    out = await tools.run_action(f"卖出一半的 {target}")
+    assert out["route"] == "action"
+    after = {p["symbol"]: p["shares"] for p in await db.list_positions()}
+    assert after[target] == round(before[target] / 2, 4)

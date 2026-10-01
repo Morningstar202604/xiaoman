@@ -13,6 +13,7 @@ pydantic>=2.13,<3            # 请求体校验（FastAPI 自带依赖，显式�
 
 # 测试 / 静态检查（开发）
 pytest>=8.0,<9
+pytest-cov>=5,<7
 pytest-asyncio>=0.24,<1
 ruff>=0.8,<1
 langgraph>=1.0,<2

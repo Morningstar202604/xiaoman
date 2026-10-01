@@ -168,6 +168,8 @@ docs/
 - [Deployment guide (local / Docker / external access / backup migration)](docs/DEPLOY.en.md) · [中文](docs/DEPLOY.md)
 - [Configuration reference (env vars + settings + AI endpoint cheat-sheet)](docs/CONFIG.en.md) · [中文](docs/CONFIG.md)
 - [Conversation workflows](docs/WORKFLOW.en.md) · [中文](docs/WORKFLOW.md)
+- [Development guide (training: code map + add-tool/setting/route workshops + release flow)](docs/DEVELOPMENT.en.md) · [中文](docs/DEVELOPMENT.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md) (current: v1.0.0)
 - Env template: [backend/.env.example](backend/.env.example)
 
 ## Tests & checks
@@ -192,14 +194,14 @@ Everything this software outputs (health checks, daily reports, AI advisor answe
 
 ## Open source & contributing
 
-- License: [MIT](LICENSE) · Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Security: [SECURITY.md](SECURITY.md)
+- License: [MIT](LICENSE) · Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Security: [SECURITY.md](SECURITY.md) · Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Issues, PRs, stars and shares are all welcome. Propose a feature or share your money-saving tips in Issues.
 
 **Topics**: `personal-finance` `finance-assistant` `ai-assistant` `chatbot` `stock` `fund` `portfolio` `budget` `sqlite` `fastapi` `langgraph` `react` `pwa` `local-first` `privacy`
 
 ## Changelog
 
-- **2026-10 (final hardening)** — four full sweeps, 12 fixes: advice sentences no longer mis-booked; 6-digit stock buys no longer recorded as expenses; "add to watchlist" triggers market tools; morning report recursion fixed; "sell half" never liquidates fully; `1w`/`2k` amounts converted correctly; 5th "settings" capability card on first screen; multi-entry bookkeeping in one sentence; omitted follow-ups continue the ledger analysis; **security: the agent only receives read tools at runtime**; "remember…" is stored as memory first. 182 tests green; backup directory moved into the data volume; buy-without-quotes degradation fixed.
+- **v1.0.0 (2026-10, final hardening)** — four full sweeps, 12 fixes: advice sentences no longer mis-booked; 6-digit stock buys no longer recorded as expenses; "add to watchlist" triggers market tools; morning report recursion fixed; "sell half" never liquidates fully; `1w`/`2k` amounts converted correctly; 5th "settings" capability card on first screen; multi-entry bookkeeping in one sentence; omitted follow-ups continue the ledger analysis; **security: the agent only receives read tools at runtime**; "remember…" is stored as memory first. **This round**: settings-tool whitelist (unknown keys rejected); encrypted-backup unit tests (round-trip / wrong passphrase / tampering) and watchlist/half-sell tool tests; **185+ tests green, coverage 75%+**; standalone CHANGELOG, version 1.0.0, CI coverage report, bilingual development guide. Full history in [CHANGELOG.md](CHANGELOG.md).
 - **2026-09 (investor-mindset redesign + workflow)** — 5-tab navigation; index strip; holdings page (grouping + concentration risk); market page (watchlist + holdings tabs, search, K-line); red-up/green-down (switchable); 17 agent tools; one-sentence end-to-end workflow; quick chips; overview reminder strip; encrypted local backups (PBKDF2+Fernet); 3-level quote fallback; cleanup pass; empty-first onboarding + empty-state guides + first-run 3-step; conversation hub (action tools + jump links + capability list).
 - **2026-09 (goals · memory · checkup)** — financial goals, long-term memory, 5-dimension health check; "remember…" in chat.
 - **2026-09 (LangGraph single path)** — LangGraph graph becomes the only execution path; React 19 / Vite 7 / Tailwind 4 modernization.

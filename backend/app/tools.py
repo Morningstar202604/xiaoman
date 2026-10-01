@@ -24,6 +24,16 @@ from .quotes import kline as fetch_kline
 # 容器重建/升级不丢备份；路径本身不落库。
 BACKUP_DIR = Path(__file__).resolve().parent.parent / "data" / "backups"
 
+# tool_set_setting 可写的键白名单：防止模型/动作带任意 key 往 settings 表写脏键。
+# 值与枚举校验仍在各分支内完成；列表以外的 key 一律拒绝。
+SETTING_KEYS_ALLOWED = frozenset({
+    "monthly_income", "emergency_target_months", "essential_categories",
+    "quote_source_mode", "report_time", "voice_input", "show_export",
+    "expand_process", "show_suggestions", "auto_refresh", "auto_refresh_seconds",
+    "compact_numbers", "color_scheme", "default_tab", "savings_goal",
+    "ai_enabled", "ai_base_url", "ai_api_key", "ai_model",
+})
+
 # ---------------------------------------------------------------------------
 # 工具执行体（纯函数，可单测）
 # ---------------------------------------------------------------------------
@@ -414,6 +424,8 @@ async def tool_set_setting(args: dict[str, Any]) -> str:
     if not key or value is None:
         return "需要提供 key 与 value，例如：改默认首页为持仓页、涨跌颜色改成绿涨红跌"
     raw = str(value)
+    if key not in SETTING_KEYS_ALLOWED:
+        return f"不支持修改配置项：{key}（仅支持设置页存在的配置）"
     if key == "color_scheme" and raw not in ("cn", "us"):
         return "涨跌颜色只能是 cn（红涨绿跌）或 us（绿涨红跌）"
     if key == "default_tab" and raw not in ("overview", "holdings", "market", "ledger", "chat"):

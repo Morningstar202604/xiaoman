@@ -21,8 +21,8 @@ jobs:
         run: pip install -q -r backend/requirements.txt
       - name: 静态检查（ruff）
         run: cd backend && python -m ruff check app tests
-      - name: 测试（pytest）
-        run: cd backend && python -m pytest tests -q
+      - name: 测试 + 覆盖率（pytest + cov）
+        run: cd backend && python -m pytest tests -q --cov=app --cov-report=term
 
   frontend:
     runs-on: ubuntu-latest

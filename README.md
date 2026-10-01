@@ -168,6 +168,8 @@ docs/
 - [部署指南（本地 / Docker / 外网 / 备份迁移）](docs/DEPLOY.md) · [English](docs/DEPLOY.en.md)
 - [配置说明（环境变量 + 设置项 + AI 端点速查）](docs/CONFIG.md) · [English](docs/CONFIG.en.md)
 - [对话工作流（一句话全流程示例）](docs/WORKFLOW.md) · [English](docs/WORKFLOW.en.md)
+- [开发指南（培训用：代码地图 + 加工具/设置/路由教程 + 发布流程）](docs/DEVELOPMENT.md) · [English](docs/DEVELOPMENT.en.md)
+- 变更记录：[CHANGELOG.md](CHANGELOG.md)（当前版本 v1.0.0）
 - 环境变量模板：[backend/.env.example](backend/.env.example)
 
 ## 测试与检查
@@ -192,14 +194,14 @@ CI 覆盖后端 ruff + pytest 与前端 tsc + build。
 
 ## 开源与贡献
 
-- 协议：[MIT](LICENSE) · 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · 贡献指引：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全说明：[SECURITY.md](SECURITY.md)
+- 协议：[MIT](LICENSE) · 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · 贡献指引：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全说明：[SECURITY.md](SECURITY.md) · 变更记录：[CHANGELOG.md](CHANGELOG.md)
 - 欢迎提交 Issue / PR、点亮 Star、推荐给需要的朋友。你也可以在 Issue 里提出新功能想法，或分享你的理财小技巧。
 
 **Topics**：`personal-finance` `finance-assistant` `ai-assistant` `chatbot` `stock` `fund` `portfolio` `budget` `sqlite` `fastapi` `langgraph` `react` `pwa` `local-first` `privacy` `中文理财` `记账` `开源理财`
 
 ## 更新日志
 
-- **2026-10（收尾查漏补缺）**：四轮全量扫描修复 12 项——理财咨询句不被记账劫持；6 位股票代码买入不误记支出；「加自选」正确触发行情工具；晨报不再无限递归；「卖一半」不误清仓；1w/2k 金额正确换算；首屏补「改设置」能力组；一句多笔记账；省略追问承接账本分析；**【安全】agent 模式只暴露读类工具**；「记住…」优先存记忆。182 用例全绿；备份目录并入数据卷；买入缺行情降级修复。
+- **v1.0.0（2026-10 正式版 · 收尾查漏补缺）**：四轮全量扫描修复 12 项——理财咨询句不被记账劫持；6 位股票代码买入不误记支出；「加自选」正确触发行情工具；晨报不再无限递归；「卖一半」不误清仓；1w/2k 金额正确换算；首屏补「改设置」能力组；一句多笔记账；省略追问承接账本分析；**【安全】agent 模式只暴露读类工具**；「记住…」优先存记忆。**本轮新增**：设置工具白名单（未知配置项拒绝写入）；加密备份单测（往返/错口令/篡改拒绝）与自选/半仓工具体测试；**185+ 用例全绿、覆盖率 75%+**；CHANGELOG 独立成文、版本号 1.0.0、CI 加覆盖率报告、开发指南双语。完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 - **2026-09（投资者心智重构 + 工作流贯通）**：5 页签导航；指数行情条；持仓页（分组+集中度风控）；行情页（自选+持仓双 Tab、搜索、K 线）；红涨绿跌（可切换）；AI 工具扩至 17 个，一句话工作流贯通；快捷指令 chips；总览提醒条；本地加密备份（PBKDF2+Fernet）；行情三级降级；拆解清理；空库首启 + 空态引导 + 首启三步引导；对话中枢（动作工具+跳转联动+能力清单首屏）。
 - **2026-09（目标 · 记忆 · 体检）**：财务目标、长期记忆、五维财务体检；对话内「记住…」记忆指令。
 - **2026-09（LangGraph 单路径化）**：LangGraph 图成为唯一执行路径；React 19/Vite 7/Tailwind 4 现代化。
