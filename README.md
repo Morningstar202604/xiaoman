@@ -39,8 +39,9 @@ cd frontend && npm run build  # 然后访问 http://127.0.0.1:8787
 
 一键启动（根目录执行）：`scripts/dev.sh`（后端 8787 + 前端 dev 5199）。Docker 部署：`docker compose up -d --build`（单容器同端口 8787，数据卷 `xiaoman-data`）。
 
-- 首次运行自动种入一套示例数据（相对当前日期生成）；顶部横幅明示「示例数据」，可随时在记账页替换或恢复示例。
-- **AI 可选**：设置页填任一 OpenAI 兼容端点即生效；未配置或调用失败自动回退内置确定性分析（带来源徽标）。
+- **空库首启**：全新库不种任何示例数据——各页显示聊天式空态引导，首启弹三步引导（记一笔 → 加自选 → 配 AI），所见即用户自己的真实数据。
+- **对话即中枢**：所有操作都能在问AI里一句话完成（记账/看行情/加自选/买卖持仓/晨报/备份/改设置），其余 4 页签是对话结果的视图；默认首页即问AI。
+- **AI 可选**：设置页填任一 OpenAI 兼容端点即生效（国产预设：DeepSeek / 豆包 / 通义 / 云知声）；未配置或调用失败自动回退内置确定性分析（带来源徽标）。
 - **备份**：设置页可全量导出/恢复；**推荐设置备份口令**——带口令导出为加密包（PBKDF2+Fernet），口令不落盘、忘记无法找回；无口令导出为明文（导出前有强提示）。
 
 ## 架构
@@ -56,6 +57,8 @@ cd frontend && npm run build  # 然后访问 http://127.0.0.1:8787
       record_transaction / get_kline / get_goals / get_user_memory / save_user_memory /
       get_health_check / search_symbol / get_quote / add_to_watchlist /
       remove_from_watchlist / get_watchlist / record_position
+      **运行时只向模型暴露读类 + 自选维护工具**；记账/记忆/买卖/设置/备份/晨报等
+      写操作全部由确定性前置分支（action/record/memory 节点）拦截，防模型越权落库
   → LLM 接入（llm.py，OpenAI 兼容，DeepSeek/豆包/通义预设）
   → 数据层：SQLite（aiosqlite + WAL）：持仓/流水/负债/订阅/预算/设置/目标/长期记忆/自选/问答历史
   → 外部：行情三级降级 东财 → 新浪 → 组合库快照（快照价标注离线估值）
@@ -114,7 +117,7 @@ backend/data/   （gitignore）wealth.db：全部个人数据
 ## 测试与检查
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests -q    # 179 项：分析内核/行情三级降级/agent 工具循环/LangGraph 图/API 集成/备份加密往返/目标/记忆/体检/密钥扫描
+cd backend && .venv/bin/python -m pytest tests -q    # 180 项：分析内核/行情三级降级/agent 工具循环/LangGraph 图/API 集成/备份加密往返/目标/记忆/体检/密钥扫描
 cd backend && .venv/bin/python -m ruff check app tests
 cd frontend && npm run build                          # tsc + vite build（自动 bump SW 缓存版本）
 ```
@@ -131,11 +134,13 @@ cd frontend && npm run build                          # tsc + vite build（自�
 ## 开源
 
 - 协议：[MIT](LICENSE)；行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · 贡献指引：[CONTRIBUTING.md](CONTRIBUTING.md) · 安全说明：[SECURITY.md](SECURITY.md)
+- 配置文档：[部署](docs/DEPLOY.md) · [配置项](docs/CONFIG.md) · [对话工作流](docs/WORKFLOW.md)
 - CI 覆盖后端 ruff + pytest 与前端 tsc + build。
 
 ## 更新日志
 
-- **2026-09（投资者心智重构 + 工作流贯通）**：5 页签导航（总览/持仓/行情/记账/问AI，默认总览）；指数行情条；持仓页（分组+集中度风控）；行情页（自选+持仓双 Tab、搜索、K 线）；红涨绿跌；AI 工具扩至 17 个（行情/自选/持仓录入），一句话工作流贯通（搜→看→加自选→记录买入→页面可见）；快捷指令 chips；总览提醒条（预算超支/目标临期/待扣款）；流水按日分组；晨报 L1/L2 徽标；本地加密备份（PBKDF2+Fernet）；行情三级降级（东财→新浪→快照）；拆解清理（删重复入口/死 i18n/无关脚本，合并冗余请求）。
+- **2026-10（收尾查漏补缺）**：四轮全量扫描修复 12 项——理财咨询句不再被记账劫持；6 位股票代码买入不再误记支出；「加自选」正确触发行情工具；晨报不再无限递归；「卖一半」不再误清仓；1w/2k 金额正确换算；首屏补「改设置」能力组；一句多笔记账（逗号/和拆分）；省略追问承接上一轮账本分析；**【安全】agent 模式只暴露读类工具，写操作由确定性分支拦截（防模型越权落库）**；「记住…」优先存记忆而非入账。180 用例全绿。
+- **2026-09（投资者心智重构 + 工作流贯通）**：5 页签导航（总览/持仓/行情/记账/问AI，默认问AI）；指数行情条；持仓页（分组+集中度风控）；行情页（自选+持仓双 Tab、搜索、K 线）；红涨绿跌（可切换绿涨红跌）；AI 工具扩至 17 个（行情/自选/持仓录入），一句话工作流贯通（搜→看→加自选→记录买入→页面可见）；快捷指令 chips；总览提醒条（预算超支/目标临期/待扣款）；流水按日分组；晨报 L1/L2 徽标；本地加密备份（PBKDF2+Fernet）；行情三级降级（东财→新浪→快照）；拆解清理（删重复入口/死 i18n/无关脚本，合并冗余请求）；空库首启 + 各页空态引导 + 首启三步引导；对话中枢（动作工具+跳转联动+能力清单首屏）。
 - **2026-09（目标 · 记忆 · 体检）**：财务目标、长期记忆、五维财务体检；对话内「记住…」记忆指令。
 - **2026-09（LangGraph 单路径化）**：移除旧顺序流程双轨，LangGraph 图成为唯一执行路径；React 19/Vite 7/Tailwind 4 现代化。
 - **2026-09（agent 升级）**：真 agent 工具循环、订阅增删、K 线、备份恢复、口令框、Docker、一键启动。

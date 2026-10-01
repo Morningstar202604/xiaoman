@@ -130,7 +130,7 @@ async def _try_nl_add(question: str, reason: str, emit: Emit, lang: str = "zh") 
         if len(lines) == 1:
             answer = "已记一笔：" + lines[0] + "。\n\n记错了可以在「记账」页删掉这一条。"
         else:
-            answer = "已记 " + str(len(lines)) + " 笔：\n" + "\n".join("· " + l for l in lines) + "\n\n记错了可以在「记账」页删掉。"
+            answer = "已记 " + str(len(lines)) + " 笔：\n" + "\n".join("· " + line for line in lines) + "\n\n记错了可以在「记账」页删掉。"
     else:
         lines = [
             f"{p['date']} {p['item']} {abs(p['amount']):,.2f} CNY"
@@ -140,7 +140,7 @@ async def _try_nl_add(question: str, reason: str, emit: Emit, lang: str = "zh") 
         if len(lines) == 1:
             answer = "Recorded: " + lines[0] + ".\n\nMade a mistake? Delete it on the Ledger page."
         else:
-            answer = "Recorded " + str(len(lines)) + " entries:\n" + "\n".join("· " + l for l in lines) + "\n\nDelete on the Ledger page if wrong."
+            answer = "Recorded " + str(len(lines)) + " entries:\n" + "\n".join("· " + line for line in lines) + "\n\nDelete on the Ledger page if wrong."
     for p in parsed_all:
         await emit({
             "type": "step", "id": "nl", "label": "已入账",

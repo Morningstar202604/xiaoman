@@ -205,3 +205,41 @@ async def test_agent_memory_preinjected(temp_db, monkeypatch):
     sys_msgs = captured[0]["messages"]
     mem_sys = [m for m in sys_msgs if m["role"] == "system" and "明年计划买房" in m["content"]]
     assert mem_sys, "长期记忆应预注入 system 消息"
+
+
+# ---------------------------------------------------------------------------
+# 买入动作（run_action）：行情不可达降级提示补成本；行情可达按现价建仓
+# ---------------------------------------------------------------------------
+
+
+async def test_buy_without_quote_asks_for_cost(temp_db, monkeypatch):
+    """行情源不可达时「买入 600519 100 股」应提示补成本，而不是报错。"""
+    async def no_quote(_sym: str) -> dict | None:
+        return None
+
+    monkeypatch.setattr(tools, "quote_now", no_quote)
+    before = {p["symbol"]: p["shares"] for p in await db.list_positions()}
+    out = await tools.run_action("买入 600519 100 股")
+    assert out["route"] == "action"
+    assert out["level"] == "需要补充"
+    assert "成本" in out["answer"]
+    # 持仓未被误改（seed 里 600519 的份额保持不变）
+    after = {p["symbol"]: p["shares"] for p in await db.list_positions()}
+    assert after.get("600519") == before.get("600519")
+
+
+async def test_buy_with_quote_records_position(temp_db, monkeypatch):
+    """行情可达时「买入 600519 100 股」按现价建仓。"""
+    async def with_quote(_sym: str) -> dict:
+        return {"price": 1250.0, "name": "贵州茅台", "symbol": "600519"}
+
+    monkeypatch.setattr(tools, "quote_now", with_quote)
+    out = await tools.run_action("买入 600519 100 股")
+    assert out["route"] == "action"
+    assert out["level"] == "已执行"
+    assert "600519" in out["answer"]
+    pos = await db.list_positions()
+    mine = [p for p in pos if p["symbol"] == "600519"]
+    assert len(mine) == 1
+    assert mine[0]["shares"] == 100
+    assert mine[0]["cost"] == 1250.0

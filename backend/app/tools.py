@@ -17,10 +17,12 @@ from typing import Any
 import httpx
 
 from . import analysis, backup, db, nlparse, scheduler
-from .quotes import kline as fetch_kline
 from .quotes import invalidate_quotes_cache, quote_now
+from .quotes import kline as fetch_kline
 
-BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
+# 备份包放 data 卷内（backend/data/backups）：本地与 Docker 数据卷（xiaoman-data）统一持久化，
+# 容器重建/升级不丢备份；路径本身不落库。
+BACKUP_DIR = Path(__file__).resolve().parent.parent / "data" / "backups"
 
 # ---------------------------------------------------------------------------
 # 工具执行体（纯函数，可单测）
@@ -885,7 +887,7 @@ async def run_action(question: str, lang: str = "zh") -> dict[str, Any]:
                 "llm": "tool",
                 "actions": [{"tab": "holdings"}],
             }
-        ans = await tool_add_position({"symbol": symbol, "shares": shares, "cost": cost})
+        ans = await tool_record_position({"symbol": symbol, "shares": shares, "cost": cost})
         return {
             "answer": ans,
             "level": "已执行",

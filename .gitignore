@@ -17,5 +17,4 @@ frontend/*.tsbuildinfo
 .pytest_cache/
 .ruff_cache/
 
-# 对话触发/手动生成的加密备份包
-backend/backups/
+# 对话触发/手动生成的加密备份包（在 data 卷内，随 backend/data/ 一并忽略）
